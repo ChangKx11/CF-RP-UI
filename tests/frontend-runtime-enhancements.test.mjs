@@ -23,7 +23,7 @@ function loadEnhancementTestHooks(documentOverrides = {}, windowOverrides = {}) 
   const closureEnd = inlineScript.lastIndexOf('})();');
   assert.notEqual(closureEnd, -1, 'enhancement script must use the expected closure');
   const instrumentedScript = inlineScript.slice(0, closureEnd)
-    + 'window.__enhancementTestHooks = { formatD1SchemaStatus, formatD1InitializationResult, formatD1RepairPlan, formatD1RepairError, patchSafetyContractMethods, getDashboardMonthPeriodKey, isDashboardMonthlyTrafficCacheFresh, toggleDashboardTrafficPeriod, dashboardTrafficState, normalizeHeadProbeResult, formatHeadProbeResult, normalizeHostPrefixDnsHostname, isHostPrefixNodeLinkActive, runWithConcurrency, NODE_GET_PROBE_CONCURRENCY };\n'
+    + 'window.__enhancementTestHooks = { formatD1SchemaStatus, formatD1InitializationResult, formatD1RepairPlan, formatD1RepairError, patchSafetyContractMethods, patchTmdbNodeMethods, getDashboardMonthPeriodKey, isDashboardMonthlyTrafficCacheFresh, toggleDashboardTrafficPeriod, dashboardTrafficState, normalizeHeadProbeResult, formatHeadProbeResult, normalizeHostPrefixDnsHostname, isHostPrefixNodeLinkActive, runWithConcurrency, NODE_GET_PROBE_CONCURRENCY };\n'
     + inlineScript.slice(closureEnd);
   const window = {
     addEventListener() {},
@@ -495,6 +495,44 @@ test('daily report kind checkboxes and the master switch stay in sync', async ()
   const kindOn = createApp({ 'cfg-tg-daily-report-d1-enabled': true });
   kindOn.handleDailyReportKindToggle();
   assert.equal(kindOn.settingsForm.tgDailyReportEnabled, true);
+});
+
+test('TMDB aggregation enhancement carries the node flag through form state and save', async () => {
+  const { patchTmdbNodeMethods } = loadEnhancementTestHooks();
+  const app = {
+    nodes: [{ name: 'alpha', tmdbAggregationEnabled: true }],
+    nodeModalForm: { name: 'alpha', tmdbAggregationEnabled: undefined },
+    nodeModalRenderKey: 1,
+    calls: [],
+    buildNodeModalFormState(node) {
+      return { hydratedNode: node, form: { name: node.name } };
+    },
+    async apiCall(action, payload) {
+      this.calls.push({ action, payload });
+      return { success: true };
+    },
+    async saveNode() {
+      await this.apiCall('save', { name: 'alpha' });
+      await this.apiCall('getNodes', {});
+      return true;
+    }
+  };
+
+  patchTmdbNodeMethods(app);
+  const state = app.buildNodeModalFormState(app.nodes[0]);
+  assert.equal(state.form.tmdbAggregationEnabled, true);
+
+  app.nodeModalForm.tmdbAggregationEnabled = true;
+  await app.saveNode();
+  assert.equal(app.calls[0].action, 'save');
+  assert.equal(app.calls[0].payload.tmdbAggregationEnabled, true);
+  assert.equal(app.calls[1].action, 'getNodes');
+  assert.equal('tmdbAggregationEnabled' in app.calls[1].payload, false);
+
+  app.calls.length = 0;
+  app.nodeModalForm.tmdbAggregationEnabled = false;
+  await app.saveNode();
+  assert.equal(app.calls[0].payload.tmdbAggregationEnabled, false);
 });
 
 test('D1 schema dialog reports only the current schema contract', () => {

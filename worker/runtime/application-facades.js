@@ -69,6 +69,7 @@ var cacheState = {
 	PlaybackInfoResponseCache: /* @__PURE__ */ new Map(),
 	PlaybackProgressRelay: /* @__PURE__ */ new Map(),
 	MetadataPrewarmTasks: /* @__PURE__ */ new Map(),
+	TmdbLookupCache: /* @__PURE__ */ new Map(),
 				DashboardMonthlyTrafficCache: /* @__PURE__ */ new Map(),
 	SingleFlightTasks: /* @__PURE__ */ new Map(),
 	AdminRemoteShellCacheMutationChains: /* @__PURE__ */ new Map(),
@@ -11633,7 +11634,7 @@ var DASHBOARD_MONTHLY_TRAFFIC_STALE_TTL_MS = 1440 * 60 * 1e3;
 var CF_DAILY_TRAFFIC_KV_KEY_PREFIX = "sys:cf_daily_traffic";
 var CF_ZONE_ANALYTICS_RETENTION_DAYS = 7;
 var CF_DAILY_TRAFFIC_ARCHIVE_TTL_SECONDS = 45 * 24 * 60 * 60;
-var CF_DAILY_TRAFFIC_SNAPSHOT_DAYS = 2;
+var CF_DAILY_TRAFFIC_SNAPSHOT_DAYS = CF_ZONE_ANALYTICS_RETENTION_DAYS;
 function makeCfDashCacheDbKey(zoneId, dateKey = "") {
 	return `${CF_DASH_CACHE_DB_KEY_PREFIX}${encodeURIComponent(String(zoneId || "default").trim() || "default")}:${encodeURIComponent(String(dateKey || "current").trim() || "current")}`;
 }
@@ -18801,6 +18802,16 @@ function defineProxyObservabilityMethods(dependencies = {}, kernel = {}) {
 }
 //#endregion
 //#region worker/features/proxy/playback/execution-cache-methods.js
+var TMDB_LOOKUP_CACHE_MAX = 4096;
+var TMDB_LOOKUP_CACHE_TTL_MS = 24 * 60 * 60 * 1e3;
+function buildTmdbConvertedRequestUrl(requestUrl, title, year) {
+	const nextUrl = new URL(requestUrl.toString());
+	nextUrl.searchParams.delete("AnyProviderIdEquals");
+	nextUrl.searchParams.set("SearchTerm", title);
+	if (/^\d{4}$/.test(year)) nextUrl.searchParams.set("Years", year);
+	else nextUrl.searchParams.delete("Years");
+	return nextUrl;
+}
 async function convertTmdbRequestFromUrl(requestUrl, env = {}) {
 	const providerId = requestUrl?.searchParams?.get?.("AnyProviderIdEquals");
 	const tmdbMatch = providerId?.match(/tmdb\.(\d+)/i);
@@ -18808,9 +18819,11 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}) {
 	const readToken = String(env?.TMDB_API_READ_TOKEN || "").trim();
 	const apiKey = String(env?.TMDB_API_KEY || "").trim();
 	if (!readToken && !apiKey) return null;
-	const includeTypes = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase();
-	const isMovie = includeTypes.includes("movie");
+	const isMovie = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase().includes("movie");
 	const mediaType = isMovie ? "movie" : "tv";
+	const cacheKey = `${mediaType}:${tmdbMatch[1]}`;
+	const cached = cacheState.TmdbLookupCache.get(cacheKey);
+	if (cached && Number(cached.expiresAt) > nowMs()) return buildTmdbConvertedRequestUrl(requestUrl, cached.title, cached.year);
 	const tmdbUrl = new URL(`https://api.themoviedb.org/3/${mediaType}/${tmdbMatch[1]}`);
 	tmdbUrl.searchParams.set("language", "zh-CN");
 	if (apiKey && !readToken) tmdbUrl.searchParams.set("api_key", apiKey);
@@ -18828,12 +18841,12 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}) {
 		const title = String(isMovie ? payload?.title || "" : payload?.name || "").trim();
 		const year = String(isMovie ? payload?.release_date || "" : payload?.first_air_date || "").slice(0, 4);
 		if (!title) return null;
-		const nextUrl = new URL(requestUrl.toString());
-		nextUrl.searchParams.delete("AnyProviderIdEquals");
-		nextUrl.searchParams.set("SearchTerm", title);
-		if (/^\d{4}$/.test(year)) nextUrl.searchParams.set("Years", year);
-		else nextUrl.searchParams.delete("Years");
-		return nextUrl;
+		setBoundedMapEntry(cacheState.TmdbLookupCache, cacheKey, {
+			title,
+			year,
+			expiresAt: nowMs() + TMDB_LOOKUP_CACHE_TTL_MS
+		}, TMDB_LOOKUP_CACHE_MAX);
+		return buildTmdbConvertedRequestUrl(requestUrl, title, year);
 	} catch (error) {
 		console.warn("TMDB request conversion failed:", error?.message || error);
 		return null;
@@ -22302,12 +22315,14 @@ function defineAnalyticsDashboardMethods(dependencies = {}, kernel = {}) {
 			const utcOffsetMinutes = normalizeScheduleUtcOffsetMinutes(config.scheduleUtcOffsetMinutes);
 			const todayWindow = buildOffsetDayWindow(new Date(nowTimestamp), utcOffsetMinutes);
 			const dayMs = 1440 * 60 * 1e3;
+			const retentionCutoffTs = nowTimestamp - CF_ZONE_ANALYTICS_RETENTION_DAYS * dayMs;
 			let storedCount = 0;
 			const errors = [];
 			for (let offsetDays = 1; offsetDays <= CF_DAILY_TRAFFIC_SNAPSHOT_DAYS; offsetDays += 1) {
 				const startTs = todayWindow.startTs - offsetDays * dayMs;
 				const endTs = startTs + dayMs - 1;
 				const dateKey = buildOffsetClockParts(new Date(startTs), utcOffsetMinutes).dateKey;
+				if (startTs < retentionCutoffTs) continue;
 				if (await readCfDailyTrafficArchiveBytes(kv, cfZoneId, dateKey) !== null) continue;
 				try {
 					const bytes = await fetchCfZoneEdgeResponseBytes(cfZoneId, cfApiToken, startTs, endTs);

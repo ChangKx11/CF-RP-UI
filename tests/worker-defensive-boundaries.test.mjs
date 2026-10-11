@@ -1091,9 +1091,13 @@ test("scheduled CF traffic archive snapshots the last complete days into KV", as
       nowMs: nowMsValue
     });
     assert.equal(result.status, "success");
-    assert.equal(result.storedCount, 2);
+    assert.equal(result.storedCount, 6);
   });
   assert.deepEqual(putKeys.slice().sort(), [
+    `sys:cf_daily_traffic:${zoneId}:2026-07-09`,
+    `sys:cf_daily_traffic:${zoneId}:2026-07-10`,
+    `sys:cf_daily_traffic:${zoneId}:2026-07-11`,
+    `sys:cf_daily_traffic:${zoneId}:2026-07-12`,
     `sys:cf_daily_traffic:${zoneId}:2026-07-13`,
     `sys:cf_daily_traffic:${zoneId}:2026-07-14`
   ]);
@@ -2370,6 +2374,7 @@ test("proxy request state synthesizes Jellyfin authorization from token headers"
 });
 
 test("TMDB provider id search converts to a title and year request", async () => {
+  isolateState.TmdbLookupCache.clear();
   const fetched = [];
   await withWorkerGlobals({
     fetch: async (url, init = {}) => {
@@ -2394,6 +2399,7 @@ test("TMDB provider id search converts to a title and year request", async () =>
 });
 
 test("TMDB provider id search uses the api key and only converts provider URLs", async () => {
+  isolateState.TmdbLookupCache.clear();
   const fetched = [];
   await withWorkerGlobals({
     fetch: async (url) => {
@@ -2414,6 +2420,7 @@ test("TMDB provider id search uses the api key and only converts provider URLs",
 });
 
 test("TMDB provider id search keeps the original URL when the lookup is rejected", async () => {
+  isolateState.TmdbLookupCache.clear();
   await withWorkerGlobals({
     fetch: async () => new Response("blocked", { status: 429 })
   }, async () => {
@@ -2423,6 +2430,7 @@ test("TMDB provider id search keeps the original URL when the lookup is rejected
 });
 
 test("TMDB provider id search does nothing without a configured credential", async () => {
+  isolateState.TmdbLookupCache.clear();
   let fetchCount = 0;
   await withWorkerGlobals({
     fetch: async () => {
@@ -2434,6 +2442,25 @@ test("TMDB provider id search does nothing without a configured credential", asy
     assert.equal(await convertTmdbRequestFromUrl(source, {}), null);
   });
   assert.equal(fetchCount, 0);
+});
+
+test("TMDB provider id search memoizes a successful lookup", async () => {
+  isolateState.TmdbLookupCache.clear();
+  let fetchCount = 0;
+  await withWorkerGlobals({
+    fetch: async () => {
+      fetchCount += 1;
+      return new Response(JSON.stringify({ title: "Cached Movie", release_date: "1999-01-01" }), { status: 200 });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.501&IncludeItemTypes=Movie");
+    const first = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
+    const second = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
+    assert.equal(first.searchParams.get("SearchTerm"), "Cached Movie");
+    assert.equal(first.searchParams.get("Years"), "1999");
+    assert.equal(second.searchParams.get("SearchTerm"), "Cached Movie");
+    assert.equal(fetchCount, 1);
+  });
 });
 
 test("node normalization keeps the TMDB aggregation flag as a strict boolean", () => {
