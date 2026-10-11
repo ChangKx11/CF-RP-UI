@@ -11630,6 +11630,10 @@ var CF_DASH_CACHE_DB_KEY_PREFIX = "cf_dashboard_cache:";
 var LEGACY_CF_DASH_CACHE_KV_KEY_PREFIX = "sys:cf_dash_cache";
 var DASHBOARD_MONTHLY_TRAFFIC_CACHE_TTL_MS = 1800 * 1e3;
 var DASHBOARD_MONTHLY_TRAFFIC_STALE_TTL_MS = 1440 * 60 * 1e3;
+var CF_DAILY_TRAFFIC_KV_KEY_PREFIX = "sys:cf_daily_traffic";
+var CF_ZONE_ANALYTICS_RETENTION_DAYS = 7;
+var CF_DAILY_TRAFFIC_ARCHIVE_TTL_SECONDS = 45 * 24 * 60 * 60;
+var CF_DAILY_TRAFFIC_SNAPSHOT_DAYS = 2;
 function makeCfDashCacheDbKey(zoneId, dateKey = "") {
 	return `${CF_DASH_CACHE_DB_KEY_PREFIX}${encodeURIComponent(String(zoneId || "default").trim() || "default")}:${encodeURIComponent(String(dateKey || "current").trim() || "current")}`;
 }
@@ -11665,6 +11669,36 @@ function makeDashboardMonthlyTrafficCacheRequest(cacheKey = "") {
 	const normalizedKey = String(cacheKey || "").trim();
 	if (!normalizedKey) return null;
 	return new Request(`https://dashboard-monthly-traffic-cache.invalid/${encodeURIComponent(normalizedKey)}`);
+}
+function makeCfDailyTrafficKvKey(zoneId = "", dateKey = "") {
+	return `${CF_DAILY_TRAFFIC_KV_KEY_PREFIX}:${encodeURIComponent(String(zoneId || "default").trim() || "default")}:${encodeURIComponent(String(dateKey || "current").trim() || "current")}`;
+}
+async function readCfDailyTrafficArchiveBytes(kv, zoneId, dateKey) {
+	if (!kv || typeof kv.get !== "function" || !dateKey) return null;
+	const cacheKey = makeCfDailyTrafficKvKey(zoneId, dateKey);
+	try {
+		const raw = await kv.get(cacheKey, { type: "json" });
+		const bytes = Number(raw?.bytes);
+		return Number.isFinite(bytes) && bytes >= 0 ? bytes : null;
+	} catch (error) {
+		logRuntimeFailure("dashboard.daily_traffic_archive_read_failed", error, { cacheKey });
+		return null;
+	}
+}
+async function writeCfDailyTrafficArchiveBytes(kv, zoneId, { dateKey = "", bytes = 0, dayEndTs = 0 } = {}) {
+	if (!kv || typeof kv.put !== "function" || !dateKey) return false;
+	const cacheKey = makeCfDailyTrafficKvKey(zoneId, dateKey);
+	try {
+		await kv.put(cacheKey, JSON.stringify({
+			bytes: Math.max(0, Number(bytes) || 0),
+			dateKey,
+			dayEndTs: Math.max(0, Number(dayEndTs) || 0)
+		}), { expirationTtl: CF_DAILY_TRAFFIC_ARCHIVE_TTL_SECONDS });
+		return true;
+	} catch (error) {
+		logRuntimeFailure("dashboard.daily_traffic_archive_write_failed", error, { cacheKey });
+		return false;
+	}
 }
 function normalizeDashboardMonthlyTrafficPayload(raw = {}) {
 	const data = raw && typeof raw === "object" ? { ...raw } : {};
@@ -14613,6 +14647,27 @@ var ScheduledMaintenanceFacade = class {
 						});
 						scheduledState.d1Tidy = skippedStatusPayload.d1Tidy;
 						scheduledState.cleanup = skippedStatusPayload.cleanup;
+					}
+					try {
+						await ensureLeaseActive();
+						const archiveResult = await this.service.snapshotCfDailyTrafficArchive(env, {
+							config,
+							nowMs: scheduledNow.getTime()
+						});
+						scheduledState.cfTrafficArchive = {
+							status: String(archiveResult?.status || "success"),
+							storedCount: Math.max(0, Number(archiveResult?.storedCount) || 0),
+							lastFinishedAt: nowIso()
+						};
+						if (archiveResult?.status === "partial_failure") scheduledState.status = this.#markPartialFailure(scheduledState.status);
+					} catch (archiveErr) {
+						scheduledState.status = this.#markPartialFailure(scheduledState.status);
+						scheduledState.cfTrafficArchive = {
+							status: "failed",
+							lastError: archiveErr?.message || String(archiveErr),
+							lastFinishedAt: nowIso()
+						};
+						this.logger.error("Scheduled CF traffic archive Error: ", archiveErr);
 					}
 					scheduledState.kvTidy = {
 						...this.#getStatusSection(previousScheduledStatus, "kvTidy"),
@@ -22162,43 +22217,114 @@ function defineAnalyticsDashboardMethods(dependencies = {}, kernel = {}) {
 				cfAnalyticsError: "请在账号设置中填写并保存 Cloudflare Zone ID 与 API 令牌",
 				trafficSourceText: "本月视频流量：未配置 Cloudflare，无法获取 CF Zone 总流量"
 			});
-			const buildQuery = (startTs, endTs) => `
-            query {
-              viewer {
-                zones(filter: { zoneTag: ${toGraphQLString(cfZoneId)} }) {
-                  series: httpRequestsAdaptiveGroups(limit: 10000, filter: { datetime_geq: ${toGraphQLString(new Date(startTs).toISOString())}, datetime_leq: ${toGraphQLString(new Date(endTs).toISOString())} }) {
-                    sum { edgeResponseBytes }
-                  }
-                }
-              }
-            }`;
-			const readWindowBytes = async (startTs, endTs) => {
-				const zoneData = await fetchCloudflareGraphQLZone(cfZoneId, cfApiToken, buildQuery(startTs, endTs));
-				if (!zoneData) throw new Error("cf_graphql_empty_zone");
-				return (Array.isArray(zoneData.series) ? zoneData.series : []).reduce((sum, item) => sum + Math.max(0, Number(item?.sum?.edgeResponseBytes) || 0), 0);
-			};
 			const dayMs = 1440 * 60 * 1e3;
+			const utcOffsetMinutes = normalizeScheduleUtcOffsetMinutes(config.scheduleUtcOffsetMinutes);
+			const kv = options?.kv || kernel.getKV(env);
+			const retentionCutoffTs = nowTimestamp - CF_ZONE_ANALYTICS_RETENTION_DAYS * dayMs;
 			const dayWindows = [];
 			for (let startTs = monthWindow.startTs; startTs <= monthWindow.endTs; startTs += dayMs) dayWindows.push({
 				startTs,
-				endTs: Math.min(monthWindow.endTs, startTs + dayMs - 1)
+				endTs: Math.min(monthWindow.endTs, startTs + dayMs - 1),
+				dateKey: buildOffsetClockParts(new Date(startTs), utcOffsetMinutes).dateKey
 			});
 			let totalBytes = 0;
+			let archivedDayCount = 0;
+			let missingDayCount = 0;
+			let cfSuccessDayCount = 0;
+			let firstCfError = null;
 			const maxConcurrentQueries = 4;
 			for (let index = 0; index < dayWindows.length; index += maxConcurrentQueries) {
-				const bytes = await Promise.all(dayWindows.slice(index, index + maxConcurrentQueries).map(({ startTs, endTs }) => readWindowBytes(startTs, endTs)));
-				totalBytes += bytes.reduce((sum, value) => sum + value, 0);
+				const dayParts = await Promise.all(dayWindows.slice(index, index + maxConcurrentQueries).map(async ({ startTs, endTs, dateKey }) => {
+					const archivedBytes = await readCfDailyTrafficArchiveBytes(kv, cfZoneId, dateKey);
+					let cfBytes = null;
+					try {
+						cfBytes = await fetchCfZoneEdgeResponseBytes(cfZoneId, cfApiToken, startTs, endTs);
+					} catch (error) {
+						firstCfError = firstCfError || error;
+					}
+					if (cfBytes === null) return archivedBytes !== null ? {
+						bytes: archivedBytes,
+						source: "archive"
+					} : {
+						bytes: 0,
+						source: "missing"
+					};
+					if (endTs < nowTimestamp && startTs >= retentionCutoffTs && archivedBytes === null) await writeCfDailyTrafficArchiveBytes(kv, cfZoneId, {
+						dateKey,
+						bytes: cfBytes,
+						dayEndTs: endTs
+					});
+					if (cfBytes === 0 && archivedBytes !== null) return {
+						bytes: archivedBytes,
+						source: "archive"
+					};
+					if (cfBytes === 0 && startTs < retentionCutoffTs) return {
+						bytes: 0,
+						source: "missing"
+					};
+					return {
+						bytes: cfBytes,
+						source: "cf"
+					};
+				}));
+				for (const dayPart of dayParts) {
+					totalBytes += Math.max(0, Number(dayPart?.bytes) || 0);
+					if (dayPart?.source === "archive") archivedDayCount += 1;
+					else if (dayPart?.source === "missing") missingDayCount += 1;
+					else if (dayPart?.source === "cf") cfSuccessDayCount += 1;
+				}
 			}
+			if (cfSuccessDayCount === 0 && archivedDayCount === 0 && firstCfError) throw firstCfError;
+			const partialNotice = missingDayCount > 0 ? `本地归档缺失 ${missingDayCount} 天（免费版 CF Zone 分析仅保留约 ${CF_ZONE_ANALYTICS_RETENTION_DAYS} 天）` : "";
 			return normalizeDashboardMonthlyTrafficPayload({
 				...basePayload,
 				traffic: formatBytes(totalBytes),
 				totalBytes,
 				cfAnalyticsLoaded: true,
-				cfAnalyticsStatus: "Cloudflare 统计正常",
+				cfAnalyticsStatus: missingDayCount > 0 ? "Cloudflare 统计正常（部分日期缺失）" : "Cloudflare 统计正常",
 				cfAnalyticsError: "",
-				cfAnalyticsDetail: "",
-				trafficSourceText: `${monthWindow.periodLabel}视频流量：CF Zone 总流量（edgeResponseBytes）`
+				cfAnalyticsDetail: partialNotice,
+				trafficSourceText: `${monthWindow.periodLabel}视频流量：CF Zone 总流量（edgeResponseBytes）${archivedDayCount > 0 ? `（本地归档 ${archivedDayCount} 天）` : ""}${partialNotice ? `；${partialNotice}` : ""}`,
+				warning: partialNotice
 			});
+		},
+		async snapshotCfDailyTrafficArchive(env, options = {}) {
+			const config = sanitizeRuntimeConfig(options?.config || await getRuntimeConfigStrict(env));
+			const kv = options?.kv || kernel.getKV(env);
+			const cfZoneId = String(config.cfZoneId || "").trim();
+			const cfApiToken = String(config.cfApiToken || "").trim();
+			if (!kv || !cfZoneId || !cfApiToken) return {
+				status: "skipped",
+				storedCount: 0,
+				errors: []
+			};
+			const nowTimestamp = Math.max(0, Number(options?.nowMs) || nowMs());
+			const utcOffsetMinutes = normalizeScheduleUtcOffsetMinutes(config.scheduleUtcOffsetMinutes);
+			const todayWindow = buildOffsetDayWindow(new Date(nowTimestamp), utcOffsetMinutes);
+			const dayMs = 1440 * 60 * 1e3;
+			let storedCount = 0;
+			const errors = [];
+			for (let offsetDays = 1; offsetDays <= CF_DAILY_TRAFFIC_SNAPSHOT_DAYS; offsetDays += 1) {
+				const startTs = todayWindow.startTs - offsetDays * dayMs;
+				const endTs = startTs + dayMs - 1;
+				const dateKey = buildOffsetClockParts(new Date(startTs), utcOffsetMinutes).dateKey;
+				if (await readCfDailyTrafficArchiveBytes(kv, cfZoneId, dateKey) !== null) continue;
+				try {
+					const bytes = await fetchCfZoneEdgeResponseBytes(cfZoneId, cfApiToken, startTs, endTs);
+					if (await writeCfDailyTrafficArchiveBytes(kv, cfZoneId, {
+						dateKey,
+						bytes,
+						dayEndTs: endTs
+					})) storedCount += 1;
+				} catch (error) {
+					errors.push(String(error?.message || error));
+				}
+			}
+			return {
+				status: errors.length > 0 ? "partial_failure" : "success",
+				storedCount,
+				errors
+			};
 		},
 		async getDashboardMonthlyTrafficPayload(env, options = {}) {
 			const config = sanitizeRuntimeConfig(options?.config || await getRuntimeConfigStrict(env));
