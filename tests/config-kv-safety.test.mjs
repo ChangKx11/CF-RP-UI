@@ -269,7 +269,9 @@ test("redacted settings backup roundtrip preserves current secrets", async () =>
   const currentConfig = {
     rateLimitRpm: 20,
     cfApiToken: "current-cf-secret",
-    tgBotToken: "current-tg-secret"
+    tgBotToken: "current-tg-secret",
+    tmdbApiReadToken: "current-tmdb-read-secret",
+    tmdbApiV3Key: "current-tmdb-key-secret"
   };
   const { kv } = createKv({ [kernel.CONFIG_KEY]: currentConfig });
   const env = {
@@ -286,11 +288,15 @@ test("redacted settings backup roundtrip preserves current secrets", async () =>
     assert.equal(backup.secretsRedacted, true);
     assert.equal(backup.config.cfApiToken, undefined);
     assert.equal(backup.config.tgBotToken, undefined);
+    assert.equal(backup.config.tmdbApiReadToken, undefined);
+    assert.equal(backup.config.tmdbApiV3Key, undefined);
 
     await adminActions.importSettings(backup, { env, ctx: null, kv, meta: {} });
     const restored = await kv.get(kernel.CONFIG_KEY, { type: "json" });
     assert.equal(restored.cfApiToken, "current-cf-secret");
     assert.equal(restored.tgBotToken, "current-tg-secret");
+    assert.equal(restored.tmdbApiReadToken, "current-tmdb-read-secret");
+    assert.equal(restored.tmdbApiV3Key, "current-tmdb-key-secret");
   } finally {
     invalidateRuntimeConfigCache();
   }

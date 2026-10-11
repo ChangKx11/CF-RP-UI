@@ -497,6 +497,14 @@ test('daily report kind checkboxes and the master switch stay in sync', async ()
   assert.equal(kindOn.settingsForm.tgDailyReportEnabled, true);
 });
 
+test('account settings expose TMDB aggregation credentials', async () => {
+  const template = await readFile(new URL('../frontend/admin-runtime.template.html', import.meta.url), 'utf8');
+  assert.match(template, /\{key:"tmdbApiReadToken",id:"cfg-tmdb-read-token",kind:"trim",defaultValue:""\}/);
+  assert.match(template, /\{key:"tmdbApiV3Key",id:"cfg-tmdb-api-key",kind:"trim",defaultValue:""\}/);
+  assert.match(template, /id:"cfg-tmdb-read-token"/);
+  assert.match(template, /id:"cfg-tmdb-api-key"/);
+});
+
 test('TMDB aggregation enhancement carries the node flag through form state and save', async () => {
   const { patchTmdbNodeMethods } = loadEnhancementTestHooks();
   const app = {

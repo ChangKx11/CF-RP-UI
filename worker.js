@@ -5054,7 +5054,9 @@ var Kd = [
     "cfApiToken",
     "cfKvNamespaceId",
     "cfD1DatabaseId",
-    "cfQuotaPlanCacheMinutes"
+    "cfQuotaPlanCacheMinutes",
+    "tmdbApiReadToken",
+    "tmdbApiV3Key"
   ],
   aliasFields: {},
   trimFields: [
@@ -5065,6 +5067,8 @@ var Kd = [
     "cfApiToken",
     "cfKvNamespaceId",
     "cfD1DatabaseId",
+    "tmdbApiReadToken",
+    "tmdbApiV3Key",
     "indexUrl",
     "cfQuotaPlanOverride",
     "corsOrigins",
@@ -5356,7 +5360,12 @@ function tc(n = {}) {
   const r = et(e.indexUrl);
   return e.indexUrl = r ? Gr(r) : "", od(e, n), e;
 }
-var rc = ["cfApiToken", "tgBotToken"];
+var rc = [
+  "cfApiToken",
+  "tgBotToken",
+  "tmdbApiReadToken",
+  "tmdbApiV3Key"
+];
 function ms(n = {}) {
   const e = se(n);
   for (const r of rc) delete e[r];
@@ -16001,35 +16010,35 @@ function js(n, e, r) {
   const t = new URL(n.toString());
   return t.searchParams.delete("AnyProviderIdEquals"), t.searchParams.set("SearchTerm", e), /^\d{4}$/.test(r) ? t.searchParams.set("Years", r) : t.searchParams.delete("Years"), t;
 }
-async function hg(n, e = {}) {
-  const r = n?.searchParams?.get?.("AnyProviderIdEquals")?.match(/tmdb\.(\d+)/i);
-  if (!r) return null;
-  const t = String(e?.TMDB_API_READ_TOKEN || "").trim(), a = String(e?.TMDB_API_KEY || "").trim();
-  if (!t && !a) return null;
-  const o = String(n.searchParams.get("IncludeItemTypes") || "").toLowerCase().includes("movie"), s = o ? "movie" : "tv", i = `${s}:${r[1]}`, c = ae.TmdbLookupCache.get(i);
-  if (c && Number(c.expiresAt) > k()) return js(n, c.title, c.year);
-  const l = new URL(`https://api.themoviedb.org/3/${s}/${r[1]}`);
-  l.searchParams.set("language", "zh-CN"), a && !t && l.searchParams.set("api_key", a);
-  const u = new Headers({ accept: "application/json" });
-  t && u.set("Authorization", `Bearer ${t}`);
-  const d = new AbortController(), f = setTimeout(() => d.abort("tmdb_timeout"), 5e3);
+async function hg(n, e = {}, r = {}) {
+  const t = n?.searchParams?.get?.("AnyProviderIdEquals")?.match(/tmdb\.(\d+)/i);
+  if (!t) return null;
+  const a = String(r?.tmdbApiReadToken || e?.TMDB_API_READ_TOKEN || "").trim(), o = String(r?.tmdbApiV3Key || e?.TMDB_API_KEY || "").trim();
+  if (!a && !o) return null;
+  const s = String(n.searchParams.get("IncludeItemTypes") || "").toLowerCase().includes("movie"), i = s ? "movie" : "tv", c = `${i}:${t[1]}`, l = ae.TmdbLookupCache.get(c);
+  if (l && Number(l.expiresAt) > k()) return js(n, l.title, l.year);
+  const u = new URL(`https://api.themoviedb.org/3/${i}/${t[1]}`);
+  u.searchParams.set("language", "zh-CN"), o && !a && u.searchParams.set("api_key", o);
+  const d = new Headers({ accept: "application/json" });
+  a && d.set("Authorization", `Bearer ${a}`);
+  const f = new AbortController(), m = setTimeout(() => f.abort("tmdb_timeout"), 5e3);
   try {
-    const m = await fetch(l, {
-      headers: u,
-      signal: d.signal
+    const p = await fetch(u, {
+      headers: d,
+      signal: f.signal
     });
-    if (!m.ok)
-      return console.warn(`TMDB ${s} lookup failed: ${m.status}`), null;
-    const p = await m.json(), g = String(o ? p?.title || "" : p?.name || "").trim(), h = String(o ? p?.release_date || "" : p?.first_air_date || "").slice(0, 4);
-    return g ? (ve(ae.TmdbLookupCache, i, {
-      title: g,
-      year: h,
+    if (!p.ok)
+      return console.warn(`TMDB ${i} lookup failed: ${p.status}`), null;
+    const g = await p.json(), h = String(s ? g?.title || "" : g?.name || "").trim(), y = String(s ? g?.release_date || "" : g?.first_air_date || "").slice(0, 4);
+    return h ? (ve(ae.TmdbLookupCache, c, {
+      title: h,
+      year: y,
       expiresAt: k() + gg
-    }, pg), js(n, g, h)) : null;
-  } catch (m) {
-    return console.warn("TMDB request conversion failed:", m?.message || m), null;
+    }, pg), js(n, h, y)) : null;
+  } catch (p) {
+    return console.warn("TMDB request conversion failed:", p?.message || p), null;
   } finally {
-    clearTimeout(f);
+    clearTimeout(m);
   }
 }
 function yg(n = {}, e = {}) {
@@ -16071,7 +16080,7 @@ function yg(n = {}, e = {}) {
         M.pathname = ge.pathname;
       }
       if (D && M.searchParams.delete(jn), o.tmdbAggregationEnabled === !0 && (m === "GET" || m === "HEAD")) {
-        const ge = await hg(M, l);
+        const ge = await hg(M, l, p);
         ge && (M = ge);
       }
       const G = Jf(o, p, i), K = e.classifyRequest(a, x, M, p, {

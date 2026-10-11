@@ -950,6 +950,8 @@ function createEmptyForm() {
     cfApiToken: '',
     cfKvNamespaceId: '',
     cfD1DatabaseId: '',
+    tmdbApiReadToken: '',
+    tmdbApiV3Key: '',
     dnsDefaultFallbackCname: '',
     tgBotToken: '',
     tgChatId: ''
@@ -1054,6 +1056,8 @@ function buildFormFromConfig(rawConfig = {}) {
     cfApiToken: String(currentConfig.cfApiToken || '').trim(),
     cfKvNamespaceId: String(currentConfig.cfKvNamespaceId || '').trim(),
     cfD1DatabaseId: String(currentConfig.cfD1DatabaseId || '').trim(),
+    tmdbApiReadToken: String(currentConfig.tmdbApiReadToken || '').trim(),
+    tmdbApiV3Key: String(currentConfig.tmdbApiV3Key || '').trim(),
     dnsDefaultFallbackCname: String(currentConfig.dnsDefaultFallbackCname || '').trim(),
     tgBotToken: String(currentConfig.tgBotToken || '').trim(),
     tgChatId: String(currentConfig.tgChatId || '').trim()
@@ -1148,6 +1152,8 @@ function buildConfigPayload(currentConfig = {}, currentForm = {}) {
     cfApiToken: String(currentForm.cfApiToken || '').trim(),
     cfKvNamespaceId: String(currentForm.cfKvNamespaceId || '').trim(),
     cfD1DatabaseId: String(currentForm.cfD1DatabaseId || '').trim(),
+    tmdbApiReadToken: String(currentForm.tmdbApiReadToken || '').trim(),
+    tmdbApiV3Key: String(currentForm.tmdbApiV3Key || '').trim(),
     dnsDefaultFallbackCname: String(currentForm.dnsDefaultFallbackCname || '').trim(),
     tgBotToken: String(currentForm.tgBotToken || '').trim(),
     tgChatId: String(currentForm.tgChatId || '').trim()
@@ -1310,6 +1316,8 @@ function buildComparableFormState(value = {}) {
     cfApiToken: String(value.cfApiToken || '').trim(),
     cfKvNamespaceId: String(value.cfKvNamespaceId || '').trim(),
     cfD1DatabaseId: String(value.cfD1DatabaseId || '').trim(),
+    tmdbApiReadToken: String(value.tmdbApiReadToken || '').trim(),
+    tmdbApiV3Key: String(value.tmdbApiV3Key || '').trim(),
     dnsDefaultFallbackCname: String(value.dnsDefaultFallbackCname || '').trim(),
     tgBotToken: String(value.tgBotToken || '').trim(),
     tgChatId: String(value.tgChatId || '').trim()
@@ -1661,6 +1669,16 @@ function resolveStatusLabel() {
           <label class="field-shell">
             <span class="field-label">D1 Database ID</span>
             <input v-model="form.cfD1DatabaseId" type="text" class="field-input" />
+          </label>
+
+          <label class="field-shell">
+            <span class="field-label">TMDB API Read Token (v4)</span>
+            <input v-model="form.tmdbApiReadToken" type="password" class="field-input" autocomplete="new-password" />
+          </label>
+
+          <label class="field-shell">
+            <span class="field-label">TMDB API Key (v3)</span>
+            <input v-model="form.tmdbApiV3Key" type="password" class="field-input" autocomplete="new-password" />
           </label>
 
           <label class="field-shell">

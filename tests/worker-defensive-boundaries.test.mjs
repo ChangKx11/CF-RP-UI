@@ -2463,6 +2463,24 @@ test("TMDB provider id search memoizes a successful lookup", async () => {
   });
 });
 
+test("TMDB provider id search prefers runtime config credentials over env", async () => {
+  isolateState.TmdbLookupCache.clear();
+  const fetched = [];
+  await withWorkerGlobals({
+    fetch: async (url, init = {}) => {
+      fetched.push({ url: String(url), headers: new Headers(init.headers) });
+      return new Response(JSON.stringify({ title: "Config Movie", release_date: "2001-02-03" }), { status: 200 });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.603&IncludeItemTypes=Movie");
+    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "env-token" }, { tmdbApiReadToken: "config-token" });
+    assert.equal(converted.searchParams.get("SearchTerm"), "Config Movie");
+    assert.equal(fetched.length, 1);
+    assert.equal(fetched[0].headers.get("Authorization"), "Bearer config-token");
+    assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/603?language=zh-CN");
+  });
+});
+
 test("node normalization keeps the TMDB aggregation flag as a strict boolean", () => {
   const enabled = kernel.normalizeNode("alpha", { target: "https://origin.test", tmdbAggregationEnabled: true }).data;
   assert.equal(enabled.tmdbAggregationEnabled, true);

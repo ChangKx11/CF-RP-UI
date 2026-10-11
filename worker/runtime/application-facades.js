@@ -5358,7 +5358,9 @@ var CONFIG_SANITIZE_RULES = {
 		"cfApiToken",
 		"cfKvNamespaceId",
 		"cfD1DatabaseId",
-		"cfQuotaPlanCacheMinutes"
+		"cfQuotaPlanCacheMinutes",
+		"tmdbApiReadToken",
+		"tmdbApiV3Key"
 	],
 	aliasFields: {},
 	trimFields: [
@@ -5369,6 +5371,8 @@ var CONFIG_SANITIZE_RULES = {
 		"cfApiToken",
 		"cfKvNamespaceId",
 		"cfD1DatabaseId",
+		"tmdbApiReadToken",
+		"tmdbApiV3Key",
 		"indexUrl",
 		"cfQuotaPlanOverride",
 		"corsOrigins",
@@ -5754,7 +5758,9 @@ function sanitizeMigratedRuntimeConfig(migratedRawConfig = {}) {
 }
 var CONFIG_SECRET_FIELDS = [
 	"cfApiToken",
-	"tgBotToken"
+	"tgBotToken",
+	"tmdbApiReadToken",
+	"tmdbApiV3Key"
 ];
 function redactRuntimeConfigSecrets(input = {}) {
 	const config = sanitizeRuntimeConfig(input);
@@ -18812,12 +18818,12 @@ function buildTmdbConvertedRequestUrl(requestUrl, title, year) {
 	else nextUrl.searchParams.delete("Years");
 	return nextUrl;
 }
-async function convertTmdbRequestFromUrl(requestUrl, env = {}) {
+async function convertTmdbRequestFromUrl(requestUrl, env = {}, config = {}) {
 	const providerId = requestUrl?.searchParams?.get?.("AnyProviderIdEquals");
 	const tmdbMatch = providerId?.match(/tmdb\.(\d+)/i);
 	if (!tmdbMatch) return null;
-	const readToken = String(env?.TMDB_API_READ_TOKEN || "").trim();
-	const apiKey = String(env?.TMDB_API_KEY || "").trim();
+	const readToken = String(config?.tmdbApiReadToken || env?.TMDB_API_READ_TOKEN || "").trim();
+	const apiKey = String(config?.tmdbApiV3Key || env?.TMDB_API_KEY || "").trim();
 	if (!readToken && !apiKey) return null;
 	const isMovie = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase().includes("movie");
 	const mediaType = isMovie ? "movie" : "tv";
@@ -18918,7 +18924,7 @@ function definePlaybackExecutionCacheMethods(dependencies = {}, kernel = {}) {
 			}
 			if (playbackAbsoluteFallbackEligible) requestUrl.searchParams.delete(PLAYBACK_ABSOLUTE_FALLBACK_QUERY_PARAM);
 			if (node.tmdbAggregationEnabled === true && (requestMethod === "GET" || requestMethod === "HEAD")) {
-				const tmdbConvertedUrl = await convertTmdbRequestFromUrl(requestUrl, env);
+				const tmdbConvertedUrl = await convertTmdbRequestFromUrl(requestUrl, env, currentConfig);
 				if (tmdbConvertedUrl) requestUrl = tmdbConvertedUrl;
 			}
 			const nodeDirectSource = isNodeVideoStreamDirectEnabled(node, currentConfig, name);
