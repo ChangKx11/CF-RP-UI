@@ -982,6 +982,124 @@ test("monthly traffic splits GraphQL windows to one day while preserving edge re
   ]);
 });
 
+test("monthly traffic falls back to the KV day archive when Cloudflare drops out-of-retention days", async () => {
+  const zoneId = "archive-zone";
+  const dayMs = 24 * 60 * 60 * 1000;
+  const nowMsValue = Date.parse("2026-07-15T12:00:00.000Z");
+  const cutoffTs = nowMsValue - 7 * dayMs;
+  const monthWindow = {
+    monthKey: "2026-07",
+    periodLabel: "2026年7月",
+    startTs: Date.parse("2026-07-01T00:00:00.000Z"),
+    endTs: nowMsValue
+  };
+  const archivedBytes = 100;
+  const archivedDays = [];
+  for (let startTs = monthWindow.startTs; startTs < cutoffTs; startTs += dayMs) {
+    archivedDays.push(new Date(startTs).toISOString().slice(0, 10));
+  }
+  assert.equal(archivedDays.length, 8);
+  const initialValues = {};
+  for (const dateKey of archivedDays) {
+    initialValues[`sys:cf_daily_traffic:${zoneId}:${dateKey}`] = { bytes: archivedBytes };
+  }
+  const { kv, putKeys } = createInMemoryKvStore(initialValues);
+  let cfRequestCount = 0;
+  const fetch = async (input, init = {}) => {
+    cfRequestCount += 1;
+    const query = String(JSON.parse(String(init.body || "{}")).query || "");
+    const startMatch = /datetime_geq:\s*"([^"]+)"/.exec(query);
+    assert.ok(startMatch);
+    if (Date.parse(startMatch[1]) < cutoffTs) {
+      return new Response(JSON.stringify({ errors: [{ message: "cf_graphql_error" }] }), { headers: { "Content-Type": "application/json" } });
+    }
+    return new Response(JSON.stringify({
+      data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 3072 } }] }] } }
+    }), { headers: { "Content-Type": "application/json" } });
+  };
+  await withWorkerGlobals({ fetch }, async () => {
+    const payload = await kernel.buildDashboardMonthlyTrafficPayload({ ENI_KV: kv }, {
+      config: {
+        cfZoneId: zoneId,
+        cfApiToken: "archive-token",
+        scheduleUtcOffsetMinutes: 0
+      },
+      monthWindow,
+      nowMs: nowMsValue
+    });
+    assert.equal(payload.cfAnalyticsLoaded, true);
+    assert.equal(payload.totalBytes, archivedDays.length * archivedBytes + 7 * 3072);
+    assert.equal(payload.warning, "");
+    assert.match(payload.trafficSourceText, /本地归档 8 天/);
+  });
+  assert.equal(cfRequestCount, 15);
+  assert.ok(putKeys.length >= 1);
+});
+
+test("monthly traffic reports a partial total when no CF or archive data exists", async () => {
+  const zoneId = "partial-zone";
+  const dayMs = 24 * 60 * 60 * 1000;
+  const nowMsValue = Date.parse("2026-07-15T12:00:00.000Z");
+  const cutoffTs = nowMsValue - 7 * dayMs;
+  const { kv } = createInMemoryKvStore();
+  const fetch = async (input, init = {}) => {
+    const query = String(JSON.parse(String(init.body || "{}")).query || "");
+    const startMatch = /datetime_geq:\s*"([^"]+)"/.exec(query);
+    if (Date.parse(startMatch[1]) < cutoffTs) {
+      return new Response(JSON.stringify({ errors: [{ message: "cf_graphql_error" }] }), { headers: { "Content-Type": "application/json" } });
+    }
+    return new Response(JSON.stringify({
+      data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 1024 } }] }] } }
+    }), { headers: { "Content-Type": "application/json" } });
+  };
+  await withWorkerGlobals({ fetch }, async () => {
+    const payload = await kernel.buildDashboardMonthlyTrafficPayload({ ENI_KV: kv }, {
+      config: {
+        cfZoneId: zoneId,
+        cfApiToken: "partial-token",
+        scheduleUtcOffsetMinutes: 0
+      },
+      monthWindow: {
+        monthKey: "2026-07",
+        periodLabel: "2026年7月",
+        startTs: Date.parse("2026-07-01T00:00:00.000Z"),
+        endTs: nowMsValue
+      },
+      nowMs: nowMsValue
+    });
+    assert.equal(payload.cfAnalyticsLoaded, true);
+    assert.equal(payload.totalBytes, 7 * 1024);
+    assert.match(payload.warning, /本地归档缺失 8 天/);
+    assert.match(payload.cfAnalyticsStatus, /部分日期缺失/);
+  });
+});
+
+test("scheduled CF traffic archive snapshots the last complete days into KV", async () => {
+  const zoneId = "snapshot-zone";
+  const { kv, putKeys, storedValues } = createInMemoryKvStore();
+  const nowMsValue = Date.parse("2026-07-15T12:00:00.000Z");
+  const fetch = async () => new Response(JSON.stringify({
+    data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 2048 } }] }] } }
+  }), { headers: { "Content-Type": "application/json" } });
+  await withWorkerGlobals({ fetch }, async () => {
+    const result = await kernel.snapshotCfDailyTrafficArchive({ ENI_KV: kv }, {
+      config: {
+        cfZoneId: zoneId,
+        cfApiToken: "snapshot-token",
+        scheduleUtcOffsetMinutes: 0
+      },
+      nowMs: nowMsValue
+    });
+    assert.equal(result.status, "success");
+    assert.equal(result.storedCount, 2);
+  });
+  assert.deepEqual(putKeys.slice().sort(), [
+    `sys:cf_daily_traffic:${zoneId}:2026-07-13`,
+    `sys:cf_daily_traffic:${zoneId}:2026-07-14`
+  ]);
+  assert.equal(JSON.parse(storedValues.get(`sys:cf_daily_traffic:${zoneId}:2026-07-14`)).bytes, 2048);
+});
+
 test("remote shell error responses are no-store and never expose saved secrets", async () => {
   let cacheReadCount = 0;
   let cacheWriteCount = 0;
