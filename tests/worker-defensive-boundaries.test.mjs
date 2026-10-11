@@ -1783,6 +1783,56 @@ test("concurrent remote shell cold loads share one upstream fetch", async () => 
   assert.equal(isolateState.SingleFlightTasks.size, 0);
 });
 
+test("cached remote shell responses are materialized before leaving their loader", async () => {
+  isolateState.SingleFlightTasks.clear();
+  isolateState.AdminRemoteShellCacheMutationChains.clear();
+  const remoteShellIndexUrl = "https://example.test/releases/v1/index.html";
+  const matchedResponse = buildAdminRemoteShellStoredResponse(
+    '<!doctype html><html><body><div id="app">cached-shell</div></body></html>',
+    { variantEtag: "cached-etag", sourceUrl: remoteShellIndexUrl }
+  );
+  // A cache-matched Response belongs to the request that matched it. Reusing it from another
+  // request handler is an I/O error in the Workers runtime, so the loader must not hand it out.
+  Object.defineProperty(matchedResponse, "clone", {
+    value() {
+      throw new Error("Cannot perform I/O on behalf of a different request");
+    }
+  });
+  let cacheWriteCount = 0;
+  const originalPatchOpsStatus = kernel.patchOpsStatus;
+  kernel.patchOpsStatus = async () => null;
+  try {
+    await withWorkerGlobals({
+      caches: {
+        default: {
+          async match() {
+            return matchedResponse;
+          },
+          async put() {
+            cacheWriteCount += 1;
+          }
+        }
+      }
+    }, async () => {
+      const response = await renderRemoteAdminPage(
+        new Request("https://worker.test/admin"),
+        { ADMIN_PATH: "/admin" },
+        { waitUntil() {} },
+        { ok: true, missing: [] },
+        remoteShellIndexUrl,
+        { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
+      );
+      assert.equal(response.status, 200);
+      assert.match(await response.text(), /cached-shell/);
+    });
+  } finally {
+    kernel.patchOpsStatus = originalPatchOpsStatus;
+  }
+  assert.equal(cacheWriteCount, 0);
+  assert.equal(isolateState.SingleFlightTasks.size, 0);
+  assert.equal(isolateState.AdminRemoteShellCacheMutationChains.size, 0);
+});
+
 test("vendor warmup preserves order and limits concurrency", async () => {
   let activeCount = 0;
   let peakActiveCount = 0;

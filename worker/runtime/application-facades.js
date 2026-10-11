@@ -3501,6 +3501,22 @@ function defineAdminShellCache(dependencies = {}, shell = {}) {
 			headers
 		});
 	}
+	async function materializeAdminRemoteShellCachedResponse(response) {
+		if (!response) return null;
+		try {
+			const sourceBody = await readResponseTextWithLimit(response, shell.ADMIN_REMOTE_SHELL_MAX_BYTES);
+			if (sourceBody.exceeded) return null;
+			const headers = new Headers(response.headers || {});
+			headers.delete("Content-Length");
+			return new Response(sourceBody.text, {
+				status: Number(response.status) || 200,
+				statusText: String(response.statusText || ""),
+				headers
+			});
+		} catch {
+			return null;
+		}
+	}
 	async function migrateLegacyAdminRemoteShellStoredResponse(response, remoteShellIndexUrl, bootstrap, initHealth) {
 		const sourceBody = await readResponseTextWithLimit(response, shell.ADMIN_REMOTE_SHELL_MAX_BYTES);
 		if (sourceBody.exceeded) throw new Error("legacy remote admin shell too large");
@@ -3821,11 +3837,14 @@ function defineAdminShellCache(dependencies = {}, shell = {}) {
 		return runSingleFlight(buildSingleFlightKey(["admin_remote_shell_cold_load", cacheKey.url]), () => runAdminRemoteShellCacheMutation(cacheKey.url, async () => {
 			if (edgeCache && typeof edgeCache.match === "function") {
 				const cacheResponseBeforeFetch = await edgeCache.match(cacheKey);
-				if (cacheResponseBeforeFetch) return {
-					storedResponse: cacheResponseBeforeFetch,
-					vendorManifest: null,
-					loadedFromCache: true
-				};
+				if (cacheResponseBeforeFetch) {
+					const materializedBeforeFetch = await shell.materializeAdminRemoteShellCachedResponse(cacheResponseBeforeFetch);
+					if (materializedBeforeFetch) return {
+						storedResponse: materializedBeforeFetch,
+						vendorManifest: null,
+						loadedFromCache: true
+					};
+				}
 			}
 			const remoteShellPayload = await fetchAdminRemoteShellStoredResponse(remoteShellIndexUrl, bootstrap, initHealth, null, releaseOptions);
 			const storedResponse = remoteShellPayload?.storedResponse || null;
@@ -3842,6 +3861,7 @@ function defineAdminShellCache(dependencies = {}, shell = {}) {
 	}
 	return {
 		buildAdminRemoteShellStoredResponse,
+		materializeAdminRemoteShellCachedResponse,
 		migrateLegacyAdminRemoteShellStoredResponse,
 		buildAdminRemoteShellClientResponse,
 		buildAdminReleaseVendorManifestCacheKeyRequest,
@@ -3989,10 +4009,13 @@ function defineAdminShellDelivery(dependencies = {}, shell = {}) {
 		if (edgeCache && typeof edgeCache.match === "function") {
 			const remoteShellCacheState = await runSingleFlight(buildSingleFlightKey(["admin_remote_shell_cache_read", cacheKey.url]), async () => {
 				const currentCachedResponse = await edgeCache.match(cacheKey);
-				if (currentCachedResponse) return {
-					storedResponse: currentCachedResponse,
-					legacyCacheMigrated: false
-				};
+				if (currentCachedResponse) {
+					const materializedCachedResponse = await shell.materializeAdminRemoteShellCachedResponse(currentCachedResponse);
+					if (materializedCachedResponse) return {
+						storedResponse: materializedCachedResponse,
+						legacyCacheMigrated: false
+					};
+				}
 				const legacyCachedResponse = await edgeCache.match(legacyCacheKey);
 				if (!legacyCachedResponse) return null;
 				const migratedResponse = await withNonCriticalFallback(shell.migrateLegacyAdminRemoteShellStoredResponse(legacyCachedResponse, remoteShellIndexUrl, bootstrap, initHealth), "admin.remote_shell_legacy_cache_read", {
@@ -4002,10 +4025,13 @@ function defineAdminShellDelivery(dependencies = {}, shell = {}) {
 				if (!migratedResponse) return null;
 				return await runAdminRemoteShellCacheMutation(cacheKey.url, async () => {
 					const cacheResponseBeforeMigration = await edgeCache.match(cacheKey);
-					if (cacheResponseBeforeMigration) return {
-						storedResponse: cacheResponseBeforeMigration,
-						legacyCacheMigrated: false
-					};
+					if (cacheResponseBeforeMigration) {
+						const materializedBeforeMigration = await shell.materializeAdminRemoteShellCachedResponse(cacheResponseBeforeMigration);
+						if (materializedBeforeMigration) return {
+							storedResponse: materializedBeforeMigration,
+							legacyCacheMigrated: false
+						};
+					}
 					if (typeof edgeCache.put === "function") await withNonCriticalFallback(edgeCache.put(cacheKey, migratedResponse.clone()), "admin.remote_shell_legacy_cache_migrate", {
 						path: requestPath,
 						remoteShellIndexUrl
