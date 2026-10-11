@@ -18810,6 +18810,7 @@ function defineProxyObservabilityMethods(dependencies = {}, kernel = {}) {
 //#region worker/features/proxy/playback/execution-cache-methods.js
 var TMDB_LOOKUP_CACHE_MAX = 4096;
 var TMDB_LOOKUP_CACHE_TTL_MS = 24 * 60 * 60 * 1e3;
+var TMDB_LOOKUP_FAILURE_TTL_MS = 60 * 1e3;
 function buildTmdbConvertedRequestUrl(requestUrl, title, year) {
 	const nextUrl = new URL(requestUrl.toString());
 	nextUrl.searchParams.delete("AnyProviderIdEquals");
@@ -18822,14 +18823,24 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}, config = {}) {
 	const providerId = requestUrl?.searchParams?.get?.("AnyProviderIdEquals");
 	const tmdbMatch = providerId?.match(/tmdb\.(\d+)/i);
 	if (!tmdbMatch) return null;
-	const readToken = String(config?.tmdbApiReadToken || env?.TMDB_API_READ_TOKEN || "").trim();
-	const apiKey = String(config?.tmdbApiV3Key || env?.TMDB_API_KEY || "").trim();
+	const configReadToken = String(config?.tmdbApiReadToken || "").trim();
+	const configApiKey = String(config?.tmdbApiV3Key || "").trim();
+	const useConfigCredentials = Boolean(configReadToken || configApiKey);
+	const readToken = useConfigCredentials ? configReadToken : String(env?.TMDB_API_READ_TOKEN || "").trim();
+	const apiKey = useConfigCredentials ? configApiKey : String(env?.TMDB_API_KEY || "").trim();
 	if (!readToken && !apiKey) return null;
 	const isMovie = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase().includes("movie");
 	const mediaType = isMovie ? "movie" : "tv";
 	const cacheKey = `${mediaType}:${tmdbMatch[1]}`;
 	const cached = cacheState.TmdbLookupCache.get(cacheKey);
-	if (cached && Number(cached.expiresAt) > nowMs()) return buildTmdbConvertedRequestUrl(requestUrl, cached.title, cached.year);
+	if (cached && Number(cached.expiresAt) > nowMs()) {
+		if (cached.failed === true) return null;
+		return buildTmdbConvertedRequestUrl(requestUrl, cached.title, cached.year);
+	}
+	const rememberLookupFailure = () => setBoundedMapEntry(cacheState.TmdbLookupCache, cacheKey, {
+		failed: true,
+		expiresAt: nowMs() + TMDB_LOOKUP_FAILURE_TTL_MS
+	}, TMDB_LOOKUP_CACHE_MAX);
 	const tmdbUrl = new URL(`https://api.themoviedb.org/3/${mediaType}/${tmdbMatch[1]}`);
 	tmdbUrl.searchParams.set("language", "zh-CN");
 	if (apiKey && !readToken) tmdbUrl.searchParams.set("api_key", apiKey);
@@ -18841,12 +18852,16 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}, config = {}) {
 		const response = await fetch(tmdbUrl, { headers, signal: controller.signal });
 		if (!response.ok) {
 			console.warn(`TMDB ${mediaType} lookup failed: ${response.status}`);
+			rememberLookupFailure();
 			return null;
 		}
 		const payload = await response.json();
 		const title = String(isMovie ? payload?.title || "" : payload?.name || "").trim();
 		const year = String(isMovie ? payload?.release_date || "" : payload?.first_air_date || "").slice(0, 4);
-		if (!title) return null;
+		if (!title) {
+			rememberLookupFailure();
+			return null;
+		}
 		setBoundedMapEntry(cacheState.TmdbLookupCache, cacheKey, {
 			title,
 			year,
@@ -18855,6 +18870,7 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}, config = {}) {
 		return buildTmdbConvertedRequestUrl(requestUrl, title, year);
 	} catch (error) {
 		console.warn("TMDB request conversion failed:", error?.message || error);
+		rememberLookupFailure();
 		return null;
 	} finally {
 		clearTimeout(timeoutId);

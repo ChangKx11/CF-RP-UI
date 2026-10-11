@@ -2481,6 +2481,56 @@ test("TMDB provider id search prefers runtime config credentials over env", asyn
   });
 });
 
+test("TMDB provider id search treats config credentials as a group over env", async () => {
+  isolateState.TmdbLookupCache.clear();
+  const fetched = [];
+  await withWorkerGlobals({
+    fetch: async (url, init = {}) => {
+      fetched.push({ url: String(url), headers: new Headers(init.headers) });
+      return new Response(JSON.stringify({ title: "Group Movie", release_date: "1990-05-06" }), { status: 200 });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.701&IncludeItemTypes=Movie");
+    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "env-token" }, { tmdbApiV3Key: "config-v3-key" });
+    assert.equal(converted.searchParams.get("SearchTerm"), "Group Movie");
+    assert.equal(fetched.length, 1);
+    assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/701?language=zh-CN&api_key=config-v3-key");
+    assert.equal(fetched[0].headers.get("Authorization"), null);
+  });
+});
+
+test("TMDB provider id search falls back to env credentials when config is empty", async () => {
+  isolateState.TmdbLookupCache.clear();
+  const fetched = [];
+  await withWorkerGlobals({
+    fetch: async (url, init = {}) => {
+      fetched.push({ url: String(url), headers: new Headers(init.headers) });
+      return new Response(JSON.stringify({ title: "Env Movie", release_date: "1991-07-08" }), { status: 200 });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.702&IncludeItemTypes=Movie");
+    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "env-token" }, { tmdbApiReadToken: "", tmdbApiV3Key: "" });
+    assert.equal(converted.searchParams.get("SearchTerm"), "Env Movie");
+    assert.equal(fetched[0].headers.get("Authorization"), "Bearer env-token");
+  });
+});
+
+test("TMDB provider id search short-caches a rejected lookup", async () => {
+  isolateState.TmdbLookupCache.clear();
+  let fetchCount = 0;
+  await withWorkerGlobals({
+    fetch: async () => {
+      fetchCount += 1;
+      return new Response("gone", { status: 404 });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.703&IncludeItemTypes=Movie");
+    assert.equal(await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }), null);
+    assert.equal(await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }), null);
+    assert.equal(fetchCount, 1);
+  });
+});
+
 test("node normalization keeps the TMDB aggregation flag as a strict boolean", () => {
   const enabled = kernel.normalizeNode("alpha", { target: "https://origin.test", tmdbAggregationEnabled: true }).data;
   assert.equal(enabled.tmdbAggregationEnabled, true);
