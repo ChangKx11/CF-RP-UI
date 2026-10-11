@@ -17276,6 +17276,25 @@ function defineProxyUpstreamDeliveryMethods(dependencies = {}, kernel = {}) {
 						requestLifecycle: execution.requestLifecycle
 					});
 				} catch (error) {
+					if (execution.requestTraits?.isImage && !redirectDecision.isSameOriginRedirect) {
+						directRedirectUrl = kernel.buildClientVisibleRedirectUrl(nextUrl, activeTargetBase, execution.nodeName, execution.nodeKey, execution.requestUrl, {
+							preserveWorkerProxy: false,
+							linkVariant: execution.linkVariant,
+							entryMode: execution.entryMode
+						}) || nextUrl;
+						kernel.finalizeRedirectTrace(redirectTrace, {
+							terminalMode: "client_redirect",
+							finalStatus: currentRedirectStatus || 301,
+							finalHost: directRedirectUrl.hostname || nextUrl.hostname || ""
+						});
+						response = new Response(null, {
+							status: currentRedirectStatus || 301,
+							statusText: "Moved Permanently"
+						});
+						finalUrl = nextUrl;
+						releaseFetchController = null;
+						break;
+					}
 					kernel.finalizeRedirectTrace(redirectTrace, {
 						terminalMode: "proxy_error_after_redirect",
 						finalStatus: currentRedirectStatus,
@@ -17294,6 +17313,31 @@ function defineProxyUpstreamDeliveryMethods(dependencies = {}, kernel = {}) {
 				execution.defaultOutboundColo = resolveResponseColoCode(response) || "";
 				if (!redirectDecision.isSameOriginRedirect) proxiedExternalRedirect = true;
 				redirectHop += 1;
+				if (execution.requestTraits?.isImage && !redirectDecision.isSameOriginRedirect && response.status >= 400) {
+					try {
+						response.body?.cancel?.();
+					} catch {}
+					try {
+						redirectUpstream.releaseFetchController?.();
+					} catch {}
+					directRedirectUrl = kernel.buildClientVisibleRedirectUrl(nextUrl, activeTargetBase, execution.nodeName, execution.nodeKey, execution.requestUrl, {
+						preserveWorkerProxy: false,
+						linkVariant: execution.linkVariant,
+						entryMode: execution.entryMode
+					}) || nextUrl;
+					kernel.finalizeRedirectTrace(redirectTrace, {
+						terminalMode: "client_redirect",
+						finalStatus: currentRedirectStatus || 301,
+						finalHost: directRedirectUrl.hostname || nextUrl.hostname || ""
+					});
+					response = new Response(null, {
+						status: currentRedirectStatus || 301,
+						statusText: "Moved Permanently"
+					});
+					finalUrl = nextUrl;
+					releaseFetchController = null;
+					break;
+				}
 			}
 			if (!redirectTrace.terminalMode && (redirectTrace.hops.length > 0 || redirectTrace.finalStatus > 0)) {
 				const finalStatus = Number(response?.status) || 0;

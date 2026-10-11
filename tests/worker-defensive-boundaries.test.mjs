@@ -2327,6 +2327,35 @@ test("node normalization keeps the TMDB aggregation flag as a strict boolean", (
   assert.equal(summary.tmdbAggregationEnabled, true);
 });
 
+test("blocked cross-origin image redirects fall back to a client-visible redirect", async () => {
+  const fetched = [];
+  await withWorkerGlobals({
+    fetch: async (url) => {
+      fetched.push(String(url));
+      if (fetched.length === 1) {
+        return new Response(null, { status: 302, headers: { Location: "https://cdn.other.test/images/cover.jpg" } });
+      }
+      return new Response("blocked", { status: 403 });
+    }
+  }, async () => {
+    const request = new Request("https://worker.test/node/secret/Items/1/Images/Primary");
+    const response = await proxyService.handle(
+      request,
+      { target: "https://origin.test" },
+      "/Items/1/Images/Primary",
+      "node",
+      "secret",
+      {},
+      { waitUntil() {} },
+      { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } }
+    );
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get("Location"), "https://cdn.other.test/images/cover.jpg");
+  });
+  assert.equal(fetched[0], "https://origin.test/Items/1/Images/Primary");
+  assert.equal(fetched[1], "https://cdn.other.test/images/cover.jpg");
+});
+
 test("runtime route context normalizes hostnames once and defers CORS headers", async () => {
   const request = new Request("https://Node.Media.Example.COM./Videos/1/stream", {
     headers: { Origin: "https://client.test" }

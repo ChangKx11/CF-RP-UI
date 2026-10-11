@@ -14708,13 +14708,50 @@ function Jp(n = {}, e = {}) {
             requestLifecycle: r.requestLifecycle
           });
         } catch (C) {
+          if (r.requestTraits?.isImage && !U.isSameOriginRedirect) {
+            y = e.buildClientVisibleRedirectUrl(T, f, r.nodeName, r.nodeKey, r.requestUrl, {
+              preserveWorkerProxy: !1,
+              linkVariant: r.linkVariant,
+              entryMode: r.entryMode
+            }) || T, e.finalizeRedirectTrace(i, {
+              terminalMode: "client_redirect",
+              finalStatus: R || 301,
+              finalHost: y.hostname || T.hostname || ""
+            }), u = new Response(null, {
+              status: R || 301,
+              statusText: "Moved Permanently"
+            }), m = T, p = null;
+            break;
+          }
           throw e.finalizeRedirectTrace(i, {
             terminalMode: "proxy_error_after_redirect",
             finalStatus: R,
             finalHost: T.hostname || ""
           }), C && typeof C == "object" && (C.redirectTrace = i), C;
         }
-        u = M.response, m = M.finalUrl, p = M.releaseFetchController, g = g || M.protocolFallbackRetry === !0, S = b, A = w, E = D, r.defaultOutboundColo = Ga(u) || "", U.isSameOriginRedirect || (h = !0), _ += 1;
+        if (u = M.response, m = M.finalUrl, p = M.releaseFetchController, g = g || M.protocolFallbackRetry === !0, S = b, A = w, E = D, r.defaultOutboundColo = Ga(u) || "", U.isSameOriginRedirect || (h = !0), _ += 1, r.requestTraits?.isImage && !U.isSameOriginRedirect && u.status >= 400) {
+          try {
+            u.body?.cancel?.();
+          } catch {
+          }
+          try {
+            M.releaseFetchController?.();
+          } catch {
+          }
+          y = e.buildClientVisibleRedirectUrl(T, f, r.nodeName, r.nodeKey, r.requestUrl, {
+            preserveWorkerProxy: !1,
+            linkVariant: r.linkVariant,
+            entryMode: r.entryMode
+          }) || T, e.finalizeRedirectTrace(i, {
+            terminalMode: "client_redirect",
+            finalStatus: R || 301,
+            finalHost: y.hostname || T.hostname || ""
+          }), u = new Response(null, {
+            status: R || 301,
+            statusText: "Moved Permanently"
+          }), m = T, p = null;
+          break;
+        }
       }
       if (!i.terminalMode && (i.hops.length > 0 || i.finalStatus > 0)) {
         const R = Number(u?.status) || 0;
