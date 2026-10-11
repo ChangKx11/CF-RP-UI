@@ -6939,6 +6939,21 @@ async function fetchCloudflareGraphQL(apiToken, query, variables) {
 async function fetchCloudflareGraphQLZone(zoneId, apiToken, query, variables) {
 	return (await fetchCloudflareGraphQL(apiToken, query, variables))?.data?.viewer?.zones?.[0] || null;
 }
+async function fetchCfZoneEdgeResponseBytes(cfZoneId, cfApiToken, startTs, endTs) {
+	const query = `
+            query {
+              viewer {
+                zones(filter: { zoneTag: ${toGraphQLString(cfZoneId)} }) {
+                  series: httpRequestsAdaptiveGroups(limit: 10000, filter: { datetime_geq: ${toGraphQLString(new Date(startTs).toISOString())}, datetime_leq: ${toGraphQLString(new Date(endTs).toISOString())} }) {
+                    sum { edgeResponseBytes }
+                  }
+                }
+              }
+            }`;
+	const zoneData = await fetchCloudflareGraphQLZone(cfZoneId, cfApiToken, query);
+	if (!zoneData) throw new Error("cf_graphql_empty_zone");
+	return (Array.isArray(zoneData.series) ? zoneData.series : []).reduce((sum, item) => sum + Math.max(0, Number(item?.sum?.edgeResponseBytes) || 0), 0);
+}
 async function fetchCloudflareGraphQLAccount(accountId, apiToken, query, variables) {
 	return (await fetchCloudflareGraphQL(apiToken, query, variables))?.data?.viewer?.accounts?.[0] || null;
 }
