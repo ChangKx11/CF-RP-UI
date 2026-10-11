@@ -2531,6 +2531,42 @@ test("TMDB provider id search short-caches a rejected lookup", async () => {
   });
 });
 
+test("TMDB provider id search honors a configured metadata language", async () => {
+  isolateState.TmdbLookupCache.clear();
+  const fetched = [];
+  await withWorkerGlobals({
+    fetch: async (url) => {
+      fetched.push(String(url));
+      return new Response(JSON.stringify({ title: "English Movie", release_date: "1988-01-01" }), { status: 200 });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.801&IncludeItemTypes=Movie");
+    await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token", TMDB_LANGUAGE: "fr-FR" }, { tmdbLanguage: "en-US" });
+    assert.equal(fetched[0], "https://api.themoviedb.org/3/movie/801?language=en-US");
+    // the language is part of the cache key, so switching language triggers a fresh lookup
+    const source2 = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.801&IncludeItemTypes=Movie");
+    await convertTmdbRequestFromUrl(source2, { TMDB_API_READ_TOKEN: "read-token", TMDB_LANGUAGE: "fr-FR" });
+    assert.equal(fetched[1], "https://api.themoviedb.org/3/movie/801?language=fr-FR");
+  });
+});
+
+test("TMDB provider id search skips episode and season lookups", async () => {
+  isolateState.TmdbLookupCache.clear();
+  let fetchCount = 0;
+  await withWorkerGlobals({
+    fetch: async () => {
+      fetchCount += 1;
+      return new Response("{}", { status: 200 });
+    }
+  }, async () => {
+    const episodeUrl = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.901&IncludeItemTypes=Episode");
+    const seasonUrl = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.902&IncludeItemTypes=Season");
+    assert.equal(await convertTmdbRequestFromUrl(episodeUrl, { TMDB_API_READ_TOKEN: "read-token" }), null);
+    assert.equal(await convertTmdbRequestFromUrl(seasonUrl, { TMDB_API_READ_TOKEN: "read-token" }), null);
+    assert.equal(fetchCount, 0);
+  });
+});
+
 test("node normalization keeps the TMDB aggregation flag as a strict boolean", () => {
   const enabled = kernel.normalizeNode("alpha", { target: "https://origin.test", tmdbAggregationEnabled: true }).data;
   assert.equal(enabled.tmdbAggregationEnabled, true);

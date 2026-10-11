@@ -503,6 +503,8 @@ test('account settings expose TMDB aggregation credentials', async () => {
   assert.match(template, /\{key:"tmdbApiV3Key",id:"cfg-tmdb-api-key",kind:"trim",defaultValue:""\}/);
   assert.match(template, /id:"cfg-tmdb-read-token"/);
   assert.match(template, /id:"cfg-tmdb-api-key"/);
+  assert.match(template, /\{key:"tmdbLanguage",id:"cfg-tmdb-language",kind:"trim",defaultValue:""\}/);
+  assert.match(template, /id:"cfg-tmdb-language"/);
 });
 
 test('TMDB aggregation enhancement carries the node flag through form state and save', async () => {

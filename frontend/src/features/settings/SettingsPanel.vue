@@ -952,6 +952,7 @@ function createEmptyForm() {
     cfD1DatabaseId: '',
     tmdbApiReadToken: '',
     tmdbApiV3Key: '',
+    tmdbLanguage: '',
     dnsDefaultFallbackCname: '',
     tgBotToken: '',
     tgChatId: ''
@@ -1058,6 +1059,7 @@ function buildFormFromConfig(rawConfig = {}) {
     cfD1DatabaseId: String(currentConfig.cfD1DatabaseId || '').trim(),
     tmdbApiReadToken: String(currentConfig.tmdbApiReadToken || '').trim(),
     tmdbApiV3Key: String(currentConfig.tmdbApiV3Key || '').trim(),
+    tmdbLanguage: String(currentConfig.tmdbLanguage || '').trim(),
     dnsDefaultFallbackCname: String(currentConfig.dnsDefaultFallbackCname || '').trim(),
     tgBotToken: String(currentConfig.tgBotToken || '').trim(),
     tgChatId: String(currentConfig.tgChatId || '').trim()
@@ -1154,6 +1156,7 @@ function buildConfigPayload(currentConfig = {}, currentForm = {}) {
     cfD1DatabaseId: String(currentForm.cfD1DatabaseId || '').trim(),
     tmdbApiReadToken: String(currentForm.tmdbApiReadToken || '').trim(),
     tmdbApiV3Key: String(currentForm.tmdbApiV3Key || '').trim(),
+    tmdbLanguage: String(currentForm.tmdbLanguage || '').trim(),
     dnsDefaultFallbackCname: String(currentForm.dnsDefaultFallbackCname || '').trim(),
     tgBotToken: String(currentForm.tgBotToken || '').trim(),
     tgChatId: String(currentForm.tgChatId || '').trim()
@@ -1318,6 +1321,7 @@ function buildComparableFormState(value = {}) {
     cfD1DatabaseId: String(value.cfD1DatabaseId || '').trim(),
     tmdbApiReadToken: String(value.tmdbApiReadToken || '').trim(),
     tmdbApiV3Key: String(value.tmdbApiV3Key || '').trim(),
+    tmdbLanguage: String(value.tmdbLanguage || '').trim(),
     dnsDefaultFallbackCname: String(value.dnsDefaultFallbackCname || '').trim(),
     tgBotToken: String(value.tgBotToken || '').trim(),
     tgChatId: String(value.tgChatId || '').trim()
@@ -1679,6 +1683,12 @@ function resolveStatusLabel() {
           <label class="field-shell">
             <span class="field-label">TMDB API Key (v3)</span>
             <input v-model="form.tmdbApiV3Key" type="password" class="field-input" autocomplete="new-password" />
+          </label>
+
+          <label class="field-shell">
+            <span class="field-label">TMDB Language</span>
+            <input v-model="form.tmdbLanguage" type="text" class="field-input" placeholder="zh-CN" />
+            <span class="field-hint">TMDB 元数据语言，默认 zh-CN。</span>
           </label>
 
           <label class="field-shell">

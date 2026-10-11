@@ -5360,7 +5360,8 @@ var CONFIG_SANITIZE_RULES = {
 		"cfD1DatabaseId",
 		"cfQuotaPlanCacheMinutes",
 		"tmdbApiReadToken",
-		"tmdbApiV3Key"
+		"tmdbApiV3Key",
+		"tmdbLanguage",
 	],
 	aliasFields: {},
 	trimFields: [
@@ -5373,6 +5374,7 @@ var CONFIG_SANITIZE_RULES = {
 		"cfD1DatabaseId",
 		"tmdbApiReadToken",
 		"tmdbApiV3Key",
+		"tmdbLanguage",
 		"indexUrl",
 		"cfQuotaPlanOverride",
 		"corsOrigins",
@@ -18829,9 +18831,12 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}, config = {}) {
 	const readToken = useConfigCredentials ? configReadToken : String(env?.TMDB_API_READ_TOKEN || "").trim();
 	const apiKey = useConfigCredentials ? configApiKey : String(env?.TMDB_API_KEY || "").trim();
 	if (!readToken && !apiKey) return null;
-	const isMovie = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase().includes("movie");
+	const itemTypes = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase();
+	if (itemTypes.includes("episode") || itemTypes.includes("season")) return null;
+	const isMovie = itemTypes.includes("movie");
 	const mediaType = isMovie ? "movie" : "tv";
-	const cacheKey = `${mediaType}:${tmdbMatch[1]}`;
+	const language = String(config?.tmdbLanguage || env?.TMDB_LANGUAGE || "zh-CN").trim() || "zh-CN";
+	const cacheKey = `${language}:${mediaType}:${tmdbMatch[1]}`;
 	const cached = cacheState.TmdbLookupCache.get(cacheKey);
 	if (cached && Number(cached.expiresAt) > nowMs()) {
 		if (cached.failed === true) return null;
@@ -18842,7 +18847,7 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}, config = {}) {
 		expiresAt: nowMs() + TMDB_LOOKUP_FAILURE_TTL_MS
 	}, TMDB_LOOKUP_CACHE_MAX);
 	const tmdbUrl = new URL(`https://api.themoviedb.org/3/${mediaType}/${tmdbMatch[1]}`);
-	tmdbUrl.searchParams.set("language", "zh-CN");
+	tmdbUrl.searchParams.set("language", language);
 	if (apiKey && !readToken) tmdbUrl.searchParams.set("api_key", apiKey);
 	const headers = new Headers({ accept: "application/json" });
 	if (readToken) headers.set("Authorization", `Bearer ${readToken}`);
