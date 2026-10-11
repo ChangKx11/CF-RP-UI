@@ -201,6 +201,7 @@ const ADMIN_RUNTIME_ENHANCEMENT_SCRIPT = `<script data-admin-runtime-enhancement
   let iconFrameId = 0;
   let shellFrameId = 0;
   let nodeModalWasOpen = false;
+  let tmdbPatchedApp = null;
   let patchedSafetyContractApp = null;
   const dashboardTrafficState = {
     period: 'day',
@@ -672,6 +673,70 @@ const ADMIN_RUNTIME_ENHANCEMENT_SCRIPT = `<script data-admin-runtime-enhancement
     headersPanel.setAttribute('data-admin-node-advanced-headers', '1');
     if (advancedFields.parentElement !== content) content.appendChild(advancedFields);
     if (headersPanel.parentElement !== content) content.appendChild(headersPanel);
+    syncTmdbAggregationControl(window.App, content, advancedFields);
+  }
+
+  function patchTmdbNodeMethods(app) {
+    if (!app || tmdbPatchedApp === app) return;
+    const originalBuildNodeModalFormState = app.buildNodeModalFormState;
+    const originalSaveNode = app.saveNode;
+    if (typeof originalBuildNodeModalFormState !== 'function' || typeof originalSaveNode !== 'function') return;
+    app.buildNodeModalFormState = function (...args) {
+      const state = originalBuildNodeModalFormState.apply(this, args);
+      const source = state?.hydratedNode || args[0] || {};
+      if (state?.form) state.form.tmdbAggregationEnabled = source?.tmdbAggregationEnabled === true;
+      return state;
+    };
+    app.saveNode = async function (...args) {
+      const enabled = document.querySelector('[data-admin-node-tmdb-aggregation="1"] input')?.checked === true
+        || this?.nodeModalForm?.tmdbAggregationEnabled === true;
+      if (this?.nodeModalForm) this.nodeModalForm.tmdbAggregationEnabled = enabled;
+      const originalApiCall = this.apiCall;
+      const wrappedApiCall = function (action, payload, ...rest) {
+        const nextPayload = action === 'save' && payload && typeof payload === 'object'
+          ? { ...payload, tmdbAggregationEnabled: enabled }
+          : payload;
+        return originalApiCall.call(this, action, nextPayload, ...rest);
+      };
+      this.apiCall = wrappedApiCall;
+      try {
+        return await originalSaveNode.apply(this, args);
+      } finally {
+        if (this.apiCall === wrappedApiCall) this.apiCall = originalApiCall;
+      }
+    };
+    tmdbPatchedApp = app;
+  }
+
+  function syncTmdbAggregationControl(app, content, advancedFields) {
+    if (!app || !content || !advancedFields) return;
+    patchTmdbNodeMethods(app);
+    if (app.nodeModalForm && typeof app.nodeModalForm.tmdbAggregationEnabled !== 'boolean') {
+      const currentName = String(app.nodeModalForm.originalName || app.nodeModalForm.name || '').trim().toLowerCase();
+      const currentNode = (Array.isArray(app.nodes) ? app.nodes : []).find((node) => String(node?.name || '').trim().toLowerCase() === currentName);
+      app.nodeModalForm.tmdbAggregationEnabled = currentNode?.tmdbAggregationEnabled === true;
+    }
+    let field = document.querySelector('[data-admin-node-tmdb-aggregation="1"]');
+    if (!field) {
+      field = document.createElement('label');
+      field.setAttribute('data-admin-node-tmdb-aggregation', '1');
+      field.className = 'flex min-w-0 items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-sm text-slate-700 dark:text-slate-200';
+      field.innerHTML = '<input type="checkbox" class="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"><span class="min-w-0"><span class="block font-medium">启用 TMDB 聚合</span><span class="mt-1 block text-xs leading-5 text-slate-400">将 tmdb Provider ID 查询转换为标题和年份搜索。</span></span>';
+    }
+    const input = field.querySelector('input');
+    if (input) {
+      const syncValue = () => {
+        if (app.nodeModalForm) app.nodeModalForm.tmdbAggregationEnabled = input.checked === true;
+      };
+      input.onchange = syncValue;
+      input.onclick = syncValue;
+      const renderKey = String(app.nodeModalRenderKey ?? '');
+      if (field.dataset.renderKey !== renderKey) {
+        input.checked = app.nodeModalForm?.tmdbAggregationEnabled === true;
+        field.dataset.renderKey = renderKey;
+      }
+    }
+    if (field.parentElement !== advancedFields) advancedFields.appendChild(field);
   }
 
   function applyNodePrimaryFieldsLayout() {

@@ -15187,6 +15187,9 @@ function defineNodeMutationMethods(dependencies = {}, kernel = {}) {
 				n.displayName = "";
 				changed = true;
 			}
+			const tmdbAggregationEnabled = n.tmdbAggregationEnabled === true;
+			if (n.tmdbAggregationEnabled !== tmdbAggregationEnabled) changed = true;
+			n.tmdbAggregationEnabled = tmdbAggregationEnabled;
 			const normalizedEntryMode = normalizeNodeEntryMode(n.entryMode);
 			if (String(n.entryMode || "") !== normalizedEntryMode) changed = true;
 			n.entryMode = normalizedEntryMode;
@@ -15312,6 +15315,7 @@ function defineNodeMutationMethods(dependencies = {}, kernel = {}) {
 																tagColor: rawNode?.tagColor !== void 0 ? String(rawNode.tagColor || "").trim() : existingNode.tagColor || "",
 				remarkColor: rawNode?.remarkColor !== void 0 ? String(rawNode.remarkColor || "").trim() : existingNode.remarkColor || "",
 				displayName: rawNode?.displayName !== void 0 ? String(rawNode.displayName || "").trim() : existingNode.displayName || "",
+				tmdbAggregationEnabled: rawNode?.tmdbAggregationEnabled !== void 0 ? rawNode.tmdbAggregationEnabled === true : existingNode.tmdbAggregationEnabled === true,
 				playbackInfoMode: rawNode?.playbackInfoMode !== void 0 ? normalizeNodePlaybackInfoMode(rawNode.playbackInfoMode) : normalizeNodePlaybackInfoMode(existingNode.playbackInfoMode),
 								mediaAuthMode: rawNode?.mediaAuthMode !== void 0 ? normalizeNodeMediaAuthMode(rawNode.mediaAuthMode) : normalizeNodeMediaAuthMode(existingNode.mediaAuthMode),
 												realClientIpMode: rawNode?.realClientIpMode !== void 0 ? normalizeNodeRealClientIpMode(rawNode.realClientIpMode) : normalizeNodeRealClientIpMode(existingNode.realClientIpMode),
@@ -18683,6 +18687,46 @@ function defineProxyObservabilityMethods(dependencies = {}, kernel = {}) {
 }
 //#endregion
 //#region worker/features/proxy/playback/execution-cache-methods.js
+async function convertTmdbRequestFromUrl(requestUrl, env = {}) {
+	const providerId = requestUrl?.searchParams?.get?.("AnyProviderIdEquals");
+	const tmdbMatch = providerId?.match(/tmdb\.(\d+)/i);
+	if (!tmdbMatch) return null;
+	const readToken = String(env?.TMDB_API_READ_TOKEN || "").trim();
+	const apiKey = String(env?.TMDB_API_KEY || "").trim();
+	if (!readToken && !apiKey) return null;
+	const includeTypes = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase();
+	const isMovie = includeTypes.includes("movie");
+	const mediaType = isMovie ? "movie" : "tv";
+	const tmdbUrl = new URL(`https://api.themoviedb.org/3/${mediaType}/${tmdbMatch[1]}`);
+	tmdbUrl.searchParams.set("language", "zh-CN");
+	if (apiKey && !readToken) tmdbUrl.searchParams.set("api_key", apiKey);
+	const headers = new Headers({ accept: "application/json" });
+	if (readToken) headers.set("Authorization", `Bearer ${readToken}`);
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort("tmdb_timeout"), 5e3);
+	try {
+		const response = await fetch(tmdbUrl, { headers, signal: controller.signal });
+		if (!response.ok) {
+			console.warn(`TMDB ${mediaType} lookup failed: ${response.status}`);
+			return null;
+		}
+		const payload = await response.json();
+		const title = String(isMovie ? payload?.title || "" : payload?.name || "").trim();
+		const year = String(isMovie ? payload?.release_date || "" : payload?.first_air_date || "").slice(0, 4);
+		if (!title) return null;
+		const nextUrl = new URL(requestUrl.toString());
+		nextUrl.searchParams.delete("AnyProviderIdEquals");
+		nextUrl.searchParams.set("SearchTerm", title);
+		if (/^\d{4}$/.test(year)) nextUrl.searchParams.set("Years", year);
+		else nextUrl.searchParams.delete("Years");
+		return nextUrl;
+	} catch (error) {
+		console.warn("TMDB request conversion failed:", error?.message || error);
+		return null;
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
 function definePlaybackExecutionCacheMethods(dependencies = {}, kernel = {}) {
 	const { CacheManager } = dependencies;
 	const playbackInfoCacheStore = new PlaybackInfoCacheStore({
@@ -18746,6 +18790,10 @@ function definePlaybackExecutionCacheMethods(dependencies = {}, kernel = {}) {
 				requestUrl.pathname = visibleUrl.pathname;
 			}
 			if (playbackAbsoluteFallbackEligible) requestUrl.searchParams.delete(PLAYBACK_ABSOLUTE_FALLBACK_QUERY_PARAM);
+			if (node.tmdbAggregationEnabled === true && (requestMethod === "GET" || requestMethod === "HEAD")) {
+				const tmdbConvertedUrl = await convertTmdbRequestFromUrl(requestUrl, env);
+				if (tmdbConvertedUrl) requestUrl = tmdbConvertedUrl;
+			}
 			const nodeDirectSource = isNodeVideoStreamDirectEnabled(node, currentConfig, name);
 			const baseRequestTraits = kernel.classifyRequest(request, proxyPath, requestUrl, currentConfig, {
 				nodeDirectSource,
@@ -24990,6 +25038,7 @@ function defineNodeIndexMethods(dependencies = {}, kernel = {}) {
 				tags: normalizeNodeTags(rawNode.tags, rawNode.tag),
 				tagColor: String(rawNode.tagColor ?? ""),
 				remark: String(rawNode.remark ?? ""),
+				tmdbAggregationEnabled: rawNode.tmdbAggregationEnabled === true,
 																				lines: normalizedLines.map((line) => ({
 					id: String(line.id || "").trim(),
 					name: String(line.name || "").trim(),
@@ -26743,6 +26792,7 @@ export {
   buildWorkerMetadataCachePolicyRevision,
   buildWorkerMetadataPrewarmIdentityPartition,
   cacheState,
+  convertTmdbRequestFromUrl,
   defineAnalyticsCacheMethods,
   defineDatabaseStatusMethods,
   defineKvTidyMethods,

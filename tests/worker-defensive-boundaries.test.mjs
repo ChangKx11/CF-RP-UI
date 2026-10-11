@@ -20,6 +20,7 @@ import {
   buildWorkerMetadataCachePolicyRevision,
   buildWorkerMetadataPrewarmIdentityPartition,
   createTargetRecord,
+  convertTmdbRequestFromUrl,
   createWorkerApplication,
   defineAnalyticsCacheMethods,
   defineDatabaseStatusMethods,
@@ -2248,6 +2249,82 @@ test("proxy request state synthesizes Jellyfin authorization from token headers"
   assert.equal(transport.newHeaders.get("X-Emby-Authorization"), 'MediaBrowser Token="transport-token"');
   assert.equal(transport.newHeaders.has("X-MediaBrowser-Authorization"), false);
   assert.equal(transport.newHeaders.get("X-Emby-Token"), "transport-token");
+});
+
+test("TMDB provider id search converts to a title and year request", async () => {
+  const fetched = [];
+  await withWorkerGlobals({
+    fetch: async (url, init = {}) => {
+      fetched.push({ url: String(url), headers: new Headers(init.headers) });
+      return new Response(JSON.stringify({ title: "Blade Runner", release_date: "1982-06-25" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/node/secret/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie&Recursive=true");
+    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
+    assert.ok(converted instanceof URL, "expected a converted URL");
+    assert.equal(converted.searchParams.has("AnyProviderIdEquals"), false);
+    assert.equal(converted.searchParams.get("SearchTerm"), "Blade Runner");
+    assert.equal(converted.searchParams.get("Years"), "1982");
+    assert.equal(converted.searchParams.get("IncludeItemTypes"), "Movie");
+    assert.equal(fetched.length, 1);
+    assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/78?language=zh-CN");
+    assert.equal(fetched[0].headers.get("Authorization"), "Bearer read-token");
+  });
+});
+
+test("TMDB provider id search uses the api key and only converts provider URLs", async () => {
+  const fetched = [];
+  await withWorkerGlobals({
+    fetch: async (url) => {
+      fetched.push(String(url));
+      return new Response(JSON.stringify({ name: "Some Show", first_air_date: "2008-01-20" }), { status: 200 });
+    }
+  }, async () => {
+    const seriesUrl = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.1396&IncludeItemTypes=Series");
+    const converted = await convertTmdbRequestFromUrl(seriesUrl, { TMDB_API_KEY: "env-api-key" });
+    assert.equal(converted.searchParams.get("SearchTerm"), "Some Show");
+    assert.equal(converted.searchParams.get("Years"), "2008");
+    assert.equal(fetched[0], "https://api.themoviedb.org/3/tv/1396?language=zh-CN&api_key=env-api-key");
+
+    const plainUrl = new URL("https://worker.test/Items?IncludeItemTypes=Movie");
+    assert.equal(await convertTmdbRequestFromUrl(plainUrl, { TMDB_API_READ_TOKEN: "read-token" }), null);
+  });
+  assert.equal(fetched.length, 1);
+});
+
+test("TMDB provider id search keeps the original URL when the lookup is rejected", async () => {
+  await withWorkerGlobals({
+    fetch: async () => new Response("blocked", { status: 429 })
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie");
+    assert.equal(await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }), null);
+  });
+});
+
+test("TMDB provider id search does nothing without a configured credential", async () => {
+  let fetchCount = 0;
+  await withWorkerGlobals({
+    fetch: async () => {
+      fetchCount += 1;
+      return new Response("{}", { status: 200 });
+    }
+  }, async () => {
+    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie");
+    assert.equal(await convertTmdbRequestFromUrl(source, {}), null);
+  });
+  assert.equal(fetchCount, 0);
+});
+
+test("node normalization keeps the TMDB aggregation flag as a strict boolean", () => {
+  const enabled = kernel.normalizeNode("alpha", { target: "https://origin.test", tmdbAggregationEnabled: true }).data;
+  assert.equal(enabled.tmdbAggregationEnabled, true);
+  const coerced = kernel.normalizeNode("alpha", { target: "https://origin.test", tmdbAggregationEnabled: "yes" }).data;
+  assert.equal(coerced.tmdbAggregationEnabled, false);
+  const summary = kernel.normalizeNodeSummaryPayload("alpha", { target: "https://origin.test", tmdbAggregationEnabled: true });
+  assert.equal(summary.tmdbAggregationEnabled, true);
 });
 
 test("runtime route context normalizes hostnames once and defers CORS headers", async () => {
