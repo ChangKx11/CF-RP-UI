@@ -454,6 +454,49 @@ test('DNS settings save includes changed preferred sources without redundant sou
   assert.doesNotThrow(() => new vm.Script(runtimeScript));
 });
 
+test('daily report kind checkboxes and the master switch stay in sync', async () => {
+  const template = await readFile(new URL('../frontend/admin-runtime.template.html', import.meta.url), 'utf8');
+  const handlerSource = template.match(
+    /handleDailyReportEnabledToggle\(\)\{[\s\S]*?\},handleDailyReportKindToggle\(\)\{[\s\S]*?\}/
+  )?.[0] || '';
+  assert.ok(handlerSource, 'daily report toggle handlers must be extractable');
+
+  const createApp = (checked) => {
+    const document = {
+      getElementById(id) {
+        return Object.prototype.hasOwnProperty.call(checked, id) ? { checked: checked[id] } : null;
+      }
+    };
+    const handlers = new Function('document', `return {${handlerSource}};`)(document);
+    return {
+      ...handlers,
+      settingsForm: {
+        tgDailyReportEnabled: false,
+        tgDailyReportSummaryEnabled: false,
+        tgDailyReportKvEnabled: false,
+        tgDailyReportD1Enabled: false
+      }
+    };
+  };
+
+  const masterOn = createApp({ 'cfg-tg-daily-report-enabled': true });
+  masterOn.handleDailyReportEnabledToggle();
+  assert.equal(masterOn.settingsForm.tgDailyReportEnabled, true);
+  assert.equal(masterOn.settingsForm.tgDailyReportSummaryEnabled, true);
+  assert.equal(masterOn.settingsForm.tgDailyReportKvEnabled, true);
+  assert.equal(masterOn.settingsForm.tgDailyReportD1Enabled, true);
+
+  const masterOff = createApp({ 'cfg-tg-daily-report-enabled': false });
+  masterOff.settingsForm.tgDailyReportKvEnabled = true;
+  masterOff.handleDailyReportEnabledToggle();
+  assert.equal(masterOff.settingsForm.tgDailyReportEnabled, false);
+  assert.equal(masterOff.settingsForm.tgDailyReportKvEnabled, true);
+
+  const kindOn = createApp({ 'cfg-tg-daily-report-d1-enabled': true });
+  kindOn.handleDailyReportKindToggle();
+  assert.equal(kindOn.settingsForm.tgDailyReportEnabled, true);
+});
+
 test('D1 schema dialog reports only the current schema contract', () => {
   const { formatD1SchemaStatus } = loadEnhancementTestHooks();
   const message = formatD1SchemaStatus({
