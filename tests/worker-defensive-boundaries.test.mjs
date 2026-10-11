@@ -43,26 +43,14 @@ import {
   runWithConcurrency,
   resetRuntimeBindingStates,
   sanitizeRuntimeConfig,
-  serializeBoundedLogDetailJson
+  serializeBoundedLogDetailJson,
 } from "../worker/runtime/application-facades.js";
 
 const hooks = createTestApplication();
 assert.ok(hooks, "worker.js must expose Node test hooks");
 
-const {
-  adminConsole,
-  nodeProxy,
-  scheduledMaintenance,
-  testPlatform,
-  workerHandler
-} = hooks;
-const {
-  adminActions,
-  adminShell,
-  logger,
-  proxyService,
-  routeTesting
-} = testPlatform.fetch;
+const { adminConsole, nodeProxy, scheduledMaintenance, testPlatform, workerHandler } = hooks;
+const { adminActions, adminShell, _logger, proxyService, routeTesting } = testPlatform.fetch;
 const {
   buildAdminLocalIndexUploadRecord,
   buildAdminRemoteShellErrorContent,
@@ -86,7 +74,7 @@ const {
   renderAdminReleaseVendorAsset,
   renderAdminRemoteShellErrorPage,
   renderRemoteAdminPage,
-  warmAdminReleaseVendorEntries
+  warmAdminReleaseVendorEntries,
 } = adminShell;
 const kernel = testPlatform.kv;
 const cachePort = testPlatform.cache;
@@ -113,8 +101,10 @@ test("workflow facades replace capability ports and compatibility composition", 
   assert.equal(typeof facades.scheduledMaintenance.handle, "function");
   for (const facade of [facades.adminConsole, facades.nodeProxy, facades.scheduledMaintenance]) {
     assert.deepEqual(
-      Object.getOwnPropertyNames(Object.getPrototypeOf(facade)).filter(name => name !== "constructor"),
-      ["handle"]
+      Object.getOwnPropertyNames(Object.getPrototypeOf(facade)).filter(
+        (name) => name !== "constructor",
+      ),
+      ["handle"],
     );
   }
 });
@@ -125,7 +115,7 @@ test("test composition exposes the production facades and handler", () => {
     "nodeProxy",
     "scheduledMaintenance",
     "testPlatform",
-    "workerHandler"
+    "workerHandler",
   ]);
   assert.deepEqual(Object.keys(testPlatform).sort(), ["cache", "clock", "d1", "fetch", "kv"]);
   assert.ok(adminConsole instanceof AdminConsoleFacade);
@@ -151,7 +141,7 @@ test("node proxy facade consumes a precomputed route context", async () => {
   assert.equal(routeContext.hostPrefixMatch, null);
   await assert.rejects(nodeProxy.handle(request, env, ctx, null), {
     name: "TypeError",
-    message: "NodeProxyFacade.handle requires routeContext"
+    message: "NodeProxyFacade.handle requires routeContext",
   });
 });
 
@@ -164,7 +154,7 @@ test("production handler dispatches ordinary node routes without entering the ad
   const response = await application.workerHandler.fetch(
     new Request("https://worker.test/missing-node/System/Info"),
     {},
-    { waitUntil() {} }
+    { waitUntil() {} },
   );
 
   assert.equal(response.status, 404);
@@ -174,14 +164,15 @@ test("direct Admin facade and production handler reject unauthenticated read and
   const env = {
     ADMIN_PATH: "/admin",
     ADMIN_PASS: "admin-password",
-    JWT_SECRET: "admin-secret"
+    JWT_SECRET: "admin-secret",
   };
   const ctx = { waitUntil() {} };
-  const buildRequest = action => new Request("https://worker.test/admin", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, data: action === "saveConfig" ? { rateLimitRpm: 30 } : {} })
-  });
+  const buildRequest = (action) =>
+    new Request("https://worker.test/admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, data: action === "saveConfig" ? { rateLimitRpm: 30 } : {} }),
+    });
 
   for (const action of ["getConfig", "saveConfig"]) {
     const direct = await adminConsole.handle(buildRequest(action), env, ctx);
@@ -197,7 +188,11 @@ test("production scheduled handler owns waitUntil for empty and busy bindings", 
   workerHandler.scheduled(
     { scheduledTime: Date.UTC(2026, 6, 30, 0, 0, 0) },
     {},
-    { waitUntil(task) { emptyTasks.push(task); } }
+    {
+      waitUntil(task) {
+        emptyTasks.push(task);
+      },
+    },
   );
   assert.equal(emptyTasks.length, 1);
   await emptyTasks[0];
@@ -206,7 +201,7 @@ test("production scheduled handler owns waitUntil for empty and busy bindings", 
     getDB: kernel.getDB,
     getKV: kernel.getKV,
     patchOpsStatus: kernel.patchOpsStatus,
-    tryAcquireScheduledLeaseWithDb: kernel.tryAcquireScheduledLeaseWithDb
+    tryAcquireScheduledLeaseWithDb: kernel.tryAcquireScheduledLeaseWithDb,
   };
   const statusPatches = [];
   try {
@@ -216,7 +211,7 @@ test("production scheduled handler owns waitUntil for empty and busy bindings", 
       acquired: false,
       backend: "d1",
       reason: "lease_busy",
-      lock: { expiresAt: "2026-07-30T00:05:00.000Z" }
+      lock: { expiresAt: "2026-07-30T00:05:00.000Z" },
     });
     kernel.patchOpsStatus = async (_env, patch) => {
       statusPatches.push(patch);
@@ -226,7 +221,11 @@ test("production scheduled handler owns waitUntil for empty and busy bindings", 
     workerHandler.scheduled(
       { scheduledTime: Date.UTC(2026, 6, 30, 0, 1, 0) },
       {},
-      { waitUntil(task) { busyTasks.push(task); } }
+      {
+        waitUntil(task) {
+          busyTasks.push(task);
+        },
+      },
     );
     assert.equal(busyTasks.length, 1);
     await busyTasks[0];
@@ -241,7 +240,7 @@ test("production scheduled handler owns waitUntil for empty and busy bindings", 
 test("formal Worker source tree omits legacy composition and public service forwarders", async () => {
   const [facadeSource, bundleSource] = await Promise.all([
     readFile(new URL("../worker/runtime/application-facades.js", import.meta.url), "utf8"),
-    readFile(new URL("../worker.js", import.meta.url), "utf8")
+    readFile(new URL("../worker.js", import.meta.url), "utf8"),
   ]);
   assert.match(facadeSource, /class \{[\s\S]*AdminConsoleFacade|AdminConsoleFacade = class/);
   const retiredFeatureNeedles = [
@@ -252,7 +251,7 @@ test("formal Worker source tree omits legacy composition and public service forw
     ["initD1", "Schema"].join(""),
     ["tmdb", "ApiKey"].join(""),
     ["serverRecord", "EmbyUsername"].join(""),
-    ["mediaAggregation", "EmbyUsername"].join("")
+    ["mediaAggregation", "EmbyUsername"].join(""),
   ];
   for (const source of [facadeSource, bundleSource]) {
     for (const needle of retiredFeatureNeedles) {
@@ -262,9 +261,11 @@ test("formal Worker source tree omits legacy composition and public service forw
   for (const relativePath of [
     "../worker/runtime/capabilities.js",
     "../worker/runtime/compat-facades.js",
-    "../worker/features/admin/public/actions/service.js"
+    "../worker/features/admin/public/actions/service.js",
   ]) {
-    await assert.rejects(readFile(new URL(relativePath, import.meta.url), "utf8"), { code: "ENOENT" });
+    await assert.rejects(readFile(new URL(relativePath, import.meta.url), "utf8"), {
+      code: "ENOENT",
+    });
   }
 });
 
@@ -272,32 +273,34 @@ function createStatusTestService(db) {
   return defineDatabaseStatusMethods({
     bindingPort: {
       getDB: () => db,
-      getKV: () => null
+      getKV: () => null,
     },
     schemaReadinessPort: {
       isD1SchemaReadyCached: () => true,
-      markD1SchemaReady() {}
+      markD1SchemaReady() {},
     },
     statusPersistence: {
-      buildOpsStatusRootPatch: patch => patch,
+      buildOpsStatusRootPatch: (patch) => patch,
       cacheOpsStatusPayload() {},
       ensureSysStatusTable: async () => true,
       flushOpsStatusShadow: async () => ({}),
-      getOpsStatusDbScope: sectionName => sectionName
-        ? kernel.OPS_STATUS_SECTION_SCOPES[sectionName]
-        : kernel.OPS_STATUS_DB_SCOPE_ROOT,
+      getOpsStatusDbScope: (sectionName) =>
+        sectionName
+          ? kernel.OPS_STATUS_SECTION_SCOPES[sectionName]
+          : kernel.OPS_STATUS_DB_SCOPE_ROOT,
       getOpsStatusPayloadCache: () => null,
-      getOpsStatusShadowPatch: activeDb => isolateState.OpsStatusShadowCache.get(activeDb)?.pendingPatch || {},
+      getOpsStatusShadowPatch: (activeDb) =>
+        isolateState.OpsStatusShadowCache.get(activeDb)?.pendingPatch || {},
       getOpsStatusShadowState: () => null,
-      resolveOpsStatusStores: value => ({ db: value, kv: null })
-    }
+      resolveOpsStatusStores: (value) => ({ db: value, kv: null }),
+    },
   });
 }
 
 test("DNS IP workspace summary includes current-host and combined rows", () => {
   const summary = buildDnsIpWorkspaceSummary(
     [{ ipType: "IPv4", countryCode: "US", coloCode: "SJC" }],
-    [{ ipType: "IPv6", countryCode: "DE", coloCode: "FRA" }]
+    [{ ipType: "IPv6", countryCode: "DE", coloCode: "FRA" }],
   );
 
   assert.deepEqual(summary.currentHost, {
@@ -305,7 +308,7 @@ test("DNS IP workspace summary includes current-host and combined rows", () => {
     ipv4Count: 1,
     ipv6Count: 0,
     countryCount: 1,
-    coloCount: 1
+    coloCount: 1,
   });
   assert.equal(summary.sharedPool.ipv6Count, 1);
   assert.deepEqual(summary.combined, {
@@ -313,7 +316,7 @@ test("DNS IP workspace summary includes current-host and combined rows", () => {
     ipv4Count: 1,
     ipv6Count: 1,
     countryCount: 2,
-    coloCount: 2
+    coloCount: 2,
   });
 });
 
@@ -326,18 +329,37 @@ test("PlaybackInfo URL mode is emitted only for rewrite mode", () => {
 test("routing decision mode honors global config and node inheritance", () => {
   assert.equal(resolveRoutingDecisionMode({ routingDecisionMode: "legacy" }), "legacy");
   assert.equal(resolveRoutingDecisionMode({ routingDecisionMode: "simplified" }), "simplified");
-  assert.equal(resolveEffectiveRoutingDecisionMode({ routingDecisionMode: "inherit" }, { routingDecisionMode: "legacy" }), "legacy");
-  assert.equal(resolveEffectiveRoutingDecisionMode({ routingDecisionMode: "simplified" }, { routingDecisionMode: "legacy" }), "simplified");
+  assert.equal(
+    resolveEffectiveRoutingDecisionMode(
+      { routingDecisionMode: "inherit" },
+      { routingDecisionMode: "legacy" },
+    ),
+    "legacy",
+  );
+  assert.equal(
+    resolveEffectiveRoutingDecisionMode(
+      { routingDecisionMode: "simplified" },
+      { routingDecisionMode: "legacy" },
+    ),
+    "simplified",
+  );
 
   const requestTraits = {
     legacyEntryOffloadEnabled: true,
     legacyEntryOffloadReason: "legacy_direct",
     nodeDirectMedia: false,
     directStaticAssets: false,
-    directHlsDash: false
+    directHlsDash: false,
   };
-  assert.equal(proxyService.getEntryRoutingDecision({ routingDecisionMode: "legacy", requestTraits }).action, "DIRECT");
-  assert.equal(proxyService.getEntryRoutingDecision({ routingDecisionMode: "simplified", requestTraits }).action, "PROXY");
+  assert.equal(
+    proxyService.getEntryRoutingDecision({ routingDecisionMode: "legacy", requestTraits }).action,
+    "DIRECT",
+  );
+  assert.equal(
+    proxyService.getEntryRoutingDecision({ routingDecisionMode: "simplified", requestTraits })
+      .action,
+    "PROXY",
+  );
 });
 
 test("runtime config sanitization migrates aliases once and drops retired fields", () => {
@@ -345,7 +367,7 @@ test("runtime config sanitization migrates aliases once and drops retired fields
     directSourceNodes: ["Alpha"],
     enableH2: true,
     releaseRepo: "retired/repo",
-    tgDailyReportTime: "08:30"
+    tgDailyReportTime: "08:30",
   });
 
   assert.deepEqual(sanitized.sourceDirectNodes, ["Alpha"]);
@@ -360,10 +382,10 @@ test("runWithConcurrency preserves order and enforces normalized limits", async 
   const measure = async (limit) => {
     let active = 0;
     let peak = 0;
-    const values = await runWithConcurrency([1, 2, 3, 4, 5], limit, async value => {
+    const values = await runWithConcurrency([1, 2, 3, 4, 5], limit, async (value) => {
       active += 1;
       peak = Math.max(peak, active);
-      await new Promise(resolve => setTimeout(resolve, 2));
+      await new Promise((resolve) => setTimeout(resolve, 2));
       active -= 1;
       return value * 2;
     });
@@ -387,81 +409,84 @@ test("node probes preserve target base paths and require a successful response",
   assert.ok(mediaTarget);
   assert.equal(
     buildProbeUpstreamUrl(rootTarget, "/emby/System/Info/Public").toString(),
-    "https://origin.example/emby/System/Info/Public"
+    "https://origin.example/emby/System/Info/Public",
   );
   assert.equal(
     buildProbeUpstreamUrl(embyTarget, "/emby/System/Info/Public").toString(),
-    "https://origin.example/emby/System/Info/Public"
+    "https://origin.example/emby/System/Info/Public",
   );
   assert.equal(
     buildProbeUpstreamUrl(embyTarget, "/System/Info/Public").toString(),
-    "https://origin.example/emby/System/Info/Public"
+    "https://origin.example/emby/System/Info/Public",
   );
   assert.equal(
     buildProbeUpstreamUrl(mixedCaseTarget, "/emby/system/ping").toString(),
-    "https://origin.example/Emby/system/ping"
+    "https://origin.example/Emby/system/ping",
   );
   assert.equal(
     buildProbeUpstreamUrl(embyTarget, "/EMBY/system/ping").toString(),
-    "https://origin.example/emby/system/ping"
+    "https://origin.example/emby/system/ping",
   );
   assert.equal(
     buildProbeUpstreamUrl(nestedTarget, "/emby/system/ping").toString(),
-    "https://origin.example/proxy/emby/system/ping"
+    "https://origin.example/proxy/emby/system/ping",
   );
   assert.equal(
     buildProbeUpstreamUrl(nestedTarget, "/proxy/emby/system/ping").toString(),
-    "https://origin.example/proxy/emby/system/ping"
+    "https://origin.example/proxy/emby/system/ping",
   );
   assert.equal(
     buildProbeUpstreamUrl(nestedTarget, "/PROXY/EMBY/system/ping").toString(),
-    "https://origin.example/proxy/emby/system/ping"
+    "https://origin.example/proxy/emby/system/ping",
   );
   assert.equal(
     buildProbeUpstreamUrl(mediaTarget, "/emby/system/ping").toString(),
-    "https://origin.example/media/emby/system/ping"
+    "https://origin.example/media/emby/system/ping",
   );
   assert.equal(
     buildUpstreamProxyUrl(embyTarget, "/System/Info/Public").toString(),
-    "https://origin.example/emby/System/Info/Public"
+    "https://origin.example/emby/System/Info/Public",
   );
   assert.equal(
     buildUpstreamProxyUrl(nestedTarget, "/emby/system/ping").toString(),
-    "https://origin.example/proxy/emby/emby/system/ping"
+    "https://origin.example/proxy/emby/emby/system/ping",
   );
 
   const responses = [404, 204, 503];
   const requests = [];
-  await withWorkerGlobals({
-    fetch: async (url, init = {}) => {
-      requests.push({ url: String(url), method: String(init.method || "GET") });
-      return new Response(null, { status: responses.shift() });
-    }
-  }, async () => {
-	const notFound = await kernel.pingTarget("https://origin.example/emby", 1000);
-	assert.equal(notFound.ok, false);
-	assert.equal(notFound.reason, "http_error");
-	assert.equal(notFound.statusCode, 404);
-	assert.equal(notFound.methodUsed, "GET");
-	const success = await kernel.pingTarget("https://origin.example", 1000, {
-      probePath: "/emby/system/ping"
-    });
-	assert.equal(success.ok, true);
-	assert.equal(success.reason, "ok");
-	assert.equal(success.statusCode, 204);
-	assert.equal(success.methodUsed, "GET");
-	assert.equal(success.probePath, "/emby/system/info/public");
-	assert.ok(success.elapsedMs >= 0);
-	const unavailable = await kernel.pingTarget("https://origin.example/emby", 1000);
-	assert.equal(unavailable.ok, false);
-	assert.equal(unavailable.reason, "http_error");
-	assert.equal(unavailable.statusCode, 503);
-	assert.equal(unavailable.methodUsed, "GET");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init = {}) => {
+        requests.push({ url: String(url), method: String(init.method || "GET") });
+        return new Response(null, { status: responses.shift() });
+      },
+    },
+    async () => {
+      const notFound = await kernel.pingTarget("https://origin.example/emby", 1000);
+      assert.equal(notFound.ok, false);
+      assert.equal(notFound.reason, "http_error");
+      assert.equal(notFound.statusCode, 404);
+      assert.equal(notFound.methodUsed, "GET");
+      const success = await kernel.pingTarget("https://origin.example", 1000, {
+        probePath: "/emby/system/ping",
+      });
+      assert.equal(success.ok, true);
+      assert.equal(success.reason, "ok");
+      assert.equal(success.statusCode, 204);
+      assert.equal(success.methodUsed, "GET");
+      assert.equal(success.probePath, "/emby/system/info/public");
+      assert.ok(success.elapsedMs >= 0);
+      const unavailable = await kernel.pingTarget("https://origin.example/emby", 1000);
+      assert.equal(unavailable.ok, false);
+      assert.equal(unavailable.reason, "http_error");
+      assert.equal(unavailable.statusCode, 503);
+      assert.equal(unavailable.methodUsed, "GET");
+    },
+  );
   assert.deepEqual(requests, [
     { url: "https://origin.example/emby/system/info/public", method: "GET" },
     { url: "https://origin.example/emby/system/info/public", method: "GET" },
-    { url: "https://origin.example/emby/system/info/public", method: "GET" }
+    { url: "https://origin.example/emby/system/info/public", method: "GET" },
   ]);
 });
 
@@ -476,23 +501,33 @@ test("failover probes prefer GET by default and retain the optional HEAD fallbac
     return new Response(null, { status: method === "HEAD" ? 405 : 204 });
   };
   try {
-    const preferredGetResult = await proxyService.runFailoverProbeCandidate({
-      failoverContext: { probePath: "/emby/system/ping", probeTimeoutMs: 1000 }
-    }, createTargetRecord("https://origin.example/emby"));
+    const preferredGetResult = await proxyService.runFailoverProbeCandidate(
+      {
+        failoverContext: { probePath: "/emby/system/ping", probeTimeoutMs: 1000 },
+      },
+      createTargetRecord("https://origin.example/emby"),
+    );
     assert.equal(preferredGetResult.ok, true);
     assert.equal(preferredGetResult.status, 204);
     assert.equal(preferredGetResult.methodUsed, "GET");
 
-    const headFallbackResult = await proxyService.runFailoverProbeCandidate({
-      failoverContext: { probePath: "/emby/system/ping", probeTimeoutMs: 1000, probePreferGet: false }
-    }, createTargetRecord("https://origin.example/emby"));
+    const headFallbackResult = await proxyService.runFailoverProbeCandidate(
+      {
+        failoverContext: {
+          probePath: "/emby/system/ping",
+          probeTimeoutMs: 1000,
+          probePreferGet: false,
+        },
+      },
+      createTargetRecord("https://origin.example/emby"),
+    );
     assert.equal(headFallbackResult.ok, true);
     assert.equal(headFallbackResult.status, 204);
     assert.equal(headFallbackResult.methodUsed, "GET");
     assert.deepEqual(requests, [
       { url: "https://origin.example/emby/system/ping", method: "GET" },
       { url: "https://origin.example/emby/system/ping", method: "HEAD" },
-      { url: "https://origin.example/emby/system/ping", method: "GET" }
+      { url: "https://origin.example/emby/system/ping", method: "GET" },
     ]);
   } finally {
     proxyService.performFailoverProbeRequest = originalProbeRequest;
@@ -502,69 +537,83 @@ test("failover probes prefer GET by default and retain the optional HEAD fallbac
 test("node GET probes use the fixed public-info path with a ten second default", async () => {
   assert.equal(Config.Defaults.PingTimeoutMs, 10000);
   const requests = [];
-  await withWorkerGlobals({
-    fetch: async (url, init = {}) => {
-      requests.push({ url: String(url), method: String(init.method || "GET") });
-      return new Response(null, { status: 204 });
-    }
-  }, async () => {
-    const probe = await kernel.pingTarget("https://origin.example/emby", 1000, {
-      probePath: "/emby/system/ping"
-    });
-	assert.equal(probe.ok, true);
-	assert.equal(probe.reason, "ok");
-	assert.equal(probe.statusCode, 204);
-	assert.equal(probe.methodUsed, "GET");
-	assert.equal(probe.probePath, "/emby/system/info/public");
-	assert.ok(probe.elapsedMs >= 0);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init = {}) => {
+        requests.push({ url: String(url), method: String(init.method || "GET") });
+        return new Response(null, { status: 204 });
+      },
+    },
+    async () => {
+      const probe = await kernel.pingTarget("https://origin.example/emby", 1000, {
+        probePath: "/emby/system/ping",
+      });
+      assert.equal(probe.ok, true);
+      assert.equal(probe.reason, "ok");
+      assert.equal(probe.statusCode, 204);
+      assert.equal(probe.methodUsed, "GET");
+      assert.equal(probe.probePath, "/emby/system/info/public");
+      assert.ok(probe.elapsedMs >= 0);
+    },
+  );
   assert.deepEqual(requests, [
-    { url: "https://origin.example/emby/system/info/public", method: "GET" }
+    { url: "https://origin.example/emby/system/info/public", method: "GET" },
   ]);
 });
 
 test("node GET probes distinguish TLS, network, invalid target, and true timeout failures", async () => {
   let requestCount = 0;
-  await withWorkerGlobals({
-    fetch: async () => {
-      requestCount += 1;
-      if (requestCount === 1) throw new TypeError("TLS certificate handshake failed");
-      throw new TypeError("Network connection lost");
-    }
-  }, async () => {
-    const tlsFailure = await kernel.pingTarget("https://tls.example", 1000);
-    assert.equal(tlsFailure.ok, false);
-    assert.equal(tlsFailure.reason, "tls_error");
-    assert.equal(tlsFailure.statusCode, null);
-    assert.equal(tlsFailure.methodUsed, "GET");
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        requestCount += 1;
+        if (requestCount === 1) throw new TypeError("TLS certificate handshake failed");
+        throw new TypeError("Network connection lost");
+      },
+    },
+    async () => {
+      const tlsFailure = await kernel.pingTarget("https://tls.example", 1000);
+      assert.equal(tlsFailure.ok, false);
+      assert.equal(tlsFailure.reason, "tls_error");
+      assert.equal(tlsFailure.statusCode, null);
+      assert.equal(tlsFailure.methodUsed, "GET");
 
-    const networkFailure = await kernel.pingTarget("https://network.example", 1000);
-    assert.equal(networkFailure.ok, false);
-    assert.equal(networkFailure.reason, "network_error");
-    assert.equal(networkFailure.statusCode, null);
+      const networkFailure = await kernel.pingTarget("https://network.example", 1000);
+      assert.equal(networkFailure.ok, false);
+      assert.equal(networkFailure.reason, "network_error");
+      assert.equal(networkFailure.statusCode, null);
 
-    const invalidTarget = await kernel.pingTarget("not-a-url", 1000);
-    assert.equal(invalidTarget.ok, false);
-    assert.equal(invalidTarget.reason, "invalid_target");
-    assert.equal(invalidTarget.methodUsed, null);
-  });
+      const invalidTarget = await kernel.pingTarget("not-a-url", 1000);
+      assert.equal(invalidTarget.ok, false);
+      assert.equal(invalidTarget.reason, "invalid_target");
+      assert.equal(invalidTarget.methodUsed, null);
+    },
+  );
 
-  await withWorkerGlobals({
-    fetch: async (_url, init = {}) => await new Promise((_resolve, reject) => {
-      init.signal?.addEventListener("abort", () => {
-        const error = new Error("aborted");
-        error.name = "AbortError";
-        reject(error);
-      }, { once: true });
-    })
-  }, async () => {
-    const timeoutFailure = await kernel.pingTarget("https://timeout.example", 5);
-    assert.equal(timeoutFailure.ok, false);
-    assert.equal(timeoutFailure.reason, "timeout");
-    assert.equal(timeoutFailure.statusCode, null);
-    assert.equal(timeoutFailure.methodUsed, "GET");
-    assert.ok(timeoutFailure.elapsedMs >= 5);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (_url, init = {}) =>
+        await new Promise((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => {
+              const error = new Error("aborted");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+        }),
+    },
+    async () => {
+      const timeoutFailure = await kernel.pingTarget("https://timeout.example", 5);
+      assert.equal(timeoutFailure.ok, false);
+      assert.equal(timeoutFailure.reason, "timeout");
+      assert.equal(timeoutFailure.statusCode, null);
+      assert.equal(timeoutFailure.methodUsed, "GET");
+      assert.ok(timeoutFailure.elapsedMs >= 5);
+    },
+  );
 });
 
 test("PlaybackInfo rewrite decodes object sources and removes invalid entries before client delivery", () => {
@@ -575,22 +624,29 @@ test("PlaybackInfo rewrite decodes object sources and removes invalid entries be
       rawRequestUrl: new URL("https://proxy.test/node/Items/primary/PlaybackInfo"),
       nodeName: "node",
       nodeKey: "secret",
-      entryMode: "kv_route"
+      entryMode: "kv_route",
     },
     {
       MediaSources: [
         JSON.stringify({ Id: "encoded-source" }),
         { Id: "valid-source", Path: "/Videos/primary/stream" },
-        "invalid-source"
-      ]
+        "invalid-source",
+      ],
     },
     new URL("https://upstream.test"),
-    new URL("https://upstream.test/Items/primary/PlaybackInfo")
+    new URL("https://upstream.test/Items/primary/PlaybackInfo"),
   );
 
   assert.equal(result.rewriteState, "applied");
-  assert.deepEqual(result.payload.MediaSources.map(source => source.Id), ["encoded-source", "valid-source"]);
-  assert.ok(result.payload.MediaSources.every(source => source && typeof source === "object" && !Array.isArray(source)));
+  assert.deepEqual(
+    result.payload.MediaSources.map((source) => source.Id),
+    ["encoded-source", "valid-source"],
+  );
+  assert.ok(
+    result.payload.MediaSources.every(
+      (source) => source && typeof source === "object" && !Array.isArray(source),
+    ),
+  );
 });
 
 const requiredFunctionHooks = {
@@ -629,7 +685,7 @@ const requiredFunctionHooks = {
   buildAdminWarmSubrequest,
   isAdminWarmResponseSuccessful,
   buildDailyTelegramSummaryMessage,
-  getDueScheduledClockSlots
+  getDueScheduledClockSlots,
 };
 
 for (const [name, value] of Object.entries(requiredFunctionHooks)) {
@@ -653,7 +709,7 @@ async function withWorkerGlobals(overrides, callback) {
     Object.defineProperty(globalThis, name, {
       configurable: true,
       writable: true,
-      value
+      value,
     });
   }
   try {
@@ -674,8 +730,8 @@ function createInMemoryKvStore(initialValues = {}) {
   const storedValues = new Map(
     Object.entries(initialValues).map(([key, value]) => [
       key,
-      typeof value === "string" ? value : JSON.stringify(value)
-    ])
+      typeof value === "string" ? value : JSON.stringify(value),
+    ]),
   );
   const putKeys = [];
   const deleteKeys = [];
@@ -697,22 +753,25 @@ function createInMemoryKvStore(initialValues = {}) {
       const prefix = String(options.prefix || "");
       return {
         keys: [...storedValues.keys()]
-          .filter(key => key.startsWith(prefix))
-          .map(name => ({ name })),
-        list_complete: true
+          .filter((key) => key.startsWith(prefix))
+          .map((name) => ({ name })),
+        list_complete: true,
       };
-    }
+    },
   };
   return { kv, storedValues, putKeys, deleteKeys };
 }
 
 function createCloudflareDnsFetch(initialRecords = [], options = {}) {
-  const records = new Map(initialRecords.map(record => [String(record.id), structuredClone(record)]));
+  const records = new Map(
+    initialRecords.map((record) => [String(record.id), structuredClone(record)]),
+  );
   let nextId = initialRecords.length + 1;
   let mutationCount = 0;
-  const jsonResponse = payload => new Response(JSON.stringify(payload), {
-    headers: { "Content-Type": "application/json" }
-  });
+  const jsonResponse = (payload) =>
+    new Response(JSON.stringify(payload), {
+      headers: { "Content-Type": "application/json" },
+    });
   const fetch = async (input, init = {}) => {
     const url = new URL(String(input));
     const method = String(init.method || "GET").toUpperCase();
@@ -729,7 +788,9 @@ function createCloudflareDnsFetch(initialRecords = [], options = {}) {
         return jsonResponse({ success: true, result: records.get(recordId) || null });
       }
       const name = String(url.searchParams.get("name") || "").toLowerCase();
-      const result = [...records.values()].filter(record => !name || String(record.name || "").toLowerCase() === name);
+      const result = [...records.values()].filter(
+        (record) => !name || String(record.name || "").toLowerCase() === name,
+      );
       return jsonResponse({ success: true, result, result_info: { total_pages: 1 } });
     }
     mutationCount += 1;
@@ -758,14 +819,16 @@ function createCloudflareDnsFetch(initialRecords = [], options = {}) {
 
 function getComparableDnsRecords(records) {
   return [...records.values()]
-    .map(record => ({
+    .map((record) => ({
       name: record.name,
       type: record.type,
       content: record.content,
       ttl: record.ttl,
-      proxied: record.proxied === true
+      proxied: record.proxied === true,
     }))
-    .sort((left, right) => `${left.type}:${left.content}`.localeCompare(`${right.type}:${right.content}`));
+    .sort((left, right) =>
+      `${left.type}:${left.content}`.localeCompare(`${right.type}:${right.content}`),
+    );
 }
 
 test("daily Telegram summary places monthly traffic below today's traffic", async () => {
@@ -778,30 +841,36 @@ test("daily Telegram summary places monthly traffic below today's traffic", asyn
       todayTraffic: "12.5 GB",
       playCount: 56,
       infoCount: 78,
-      todayRequests: 1234
+      todayRequests: 1234,
     });
     kernel.getDashboardMonthlyTrafficPayload = async (_env, options = {}) => {
       assert.equal(options.ctx, ctx);
       return { traffic: "345.6 GB" };
     };
 
-    const payload = await kernel.buildDailyTelegramSummaryPayload({}, {
-      config: { scheduleUtcOffsetMinutes: 480 },
-      ctx,
-      now: new Date("2026-07-19T04:00:00.000Z")
-    });
+    const payload = await kernel.buildDailyTelegramSummaryPayload(
+      {},
+      {
+        config: { scheduleUtcOffsetMinutes: 480 },
+        ctx,
+        now: new Date("2026-07-19T04:00:00.000Z"),
+      },
+    );
     assert.equal(payload.monthlyTraffic, "345.6 GB");
 
     const message = buildDailyTelegramSummaryMessage(payload, { dateKey: "2026-07-19" });
-    assert.equal(message, [
-      "📊 EMBY-PROXY每日报表 (2026-07-19)",
-      "",
-      "请求数: 1,234",
-      "视频流量 (CF 总计): 12.5 GB",
-      "本月流量 (CF 总计): 345.6 GB",
-      "请求: 播放请求 56 次 | 获取播放信息 78 次",
-      "#Cloudflare #Emby #日报"
-    ].join("\n"));
+    assert.equal(
+      message,
+      [
+        "📊 EMBY-PROXY每日报表 (2026-07-19)",
+        "",
+        "请求数: 1,234",
+        "视频流量 (CF 总计): 12.5 GB",
+        "本月流量 (CF 总计): 345.6 GB",
+        "请求: 播放请求 56 次 | 获取播放信息 78 次",
+        "#Cloudflare #Emby #日报",
+      ].join("\n"),
+    );
   } finally {
     kernel.buildDashboardStatsPayload = originalBuildDashboardStatsPayload;
     kernel.getDashboardMonthlyTrafficPayload = originalGetDashboardMonthlyTrafficPayload;
@@ -819,23 +888,27 @@ test("log detail serialization distinguishes shared references from circular ref
   const circular = { value: "circular" };
   circular.self = circular;
 
-  assert.deepEqual(JSON.parse(serializeBoundedLogDetailJson({ first: shared, second: shared, circular })), {
-    first: { value: "shared" },
-    second: { value: "shared" },
-    circular: { value: "circular", self: "[Circular]" }
-  });
+  assert.deepEqual(
+    JSON.parse(serializeBoundedLogDetailJson({ first: shared, second: shared, circular })),
+    {
+      first: { value: "shared" },
+      second: { value: "shared" },
+      circular: { value: "circular", self: "[Circular]" },
+    },
+  );
 });
 
 test("log detail serialization reads only its bounded field budget", () => {
   let reads = 0;
   const detail = {};
-  for (let index = 0; index < 64; index += 1) Object.defineProperty(detail, `field_${index}`, {
-    enumerable: true,
-    get() {
-      reads += 1;
-      return "x".repeat(1024);
-    }
-  });
+  for (let index = 0; index < 64; index += 1)
+    Object.defineProperty(detail, `field_${index}`, {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return "x".repeat(1024);
+      },
+    });
 
   const serialized = serializeBoundedLogDetailJson(detail);
 
@@ -850,18 +923,21 @@ test("monthly traffic stats are on-demand cached without touching D1", async () 
     [kernel.CONFIG_KEY]: {
       cfZoneId: zoneId,
       cfApiToken: "monthly-token",
-      scheduleUtcOffsetMinutes: 480
-    }
+      scheduleUtcOffsetMinutes: 480,
+    },
   });
   const env = {
     ENI_KV: kv,
-    __CONFIG_CACHE_NAMESPACE: `monthly-traffic-${zoneId}`
+    __CONFIG_CACHE_NAMESPACE: `monthly-traffic-${zoneId}`,
   };
-  const d1 = new globalThis.Proxy({}, {
-    get() {
-      throw new Error("monthly traffic must not access D1");
-    }
-  });
+  const d1 = new globalThis.Proxy(
+    {},
+    {
+      get() {
+        throw new Error("monthly traffic must not access D1");
+      },
+    },
+  );
   const cacheEntries = new Map();
   const edgeCache = {
     async match(request) {
@@ -869,7 +945,7 @@ test("monthly traffic stats are on-demand cached without touching D1", async () 
     },
     async put(request, response) {
       cacheEntries.set(request.url, response.clone());
-    }
+    },
   };
   let graphqlRequestCount = 0;
   const fetch = async (input, init = {}) => {
@@ -878,31 +954,43 @@ test("monthly traffic stats are on-demand cached without touching D1", async () 
     const body = JSON.parse(String(init.body || "{}"));
     assert.match(body.query, /httpRequestsAdaptiveGroups/);
     assert.match(body.query, /edgeResponseBytes/);
-    return new Response(JSON.stringify({
-      data: {
-        viewer: {
-          zones: [{
-            series: [
-              { sum: { edgeResponseBytes: 1024 } },
-              { sum: { edgeResponseBytes: 2048 } }
-            ]
-          }]
-        }
-      }
-    }), { headers: { "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        data: {
+          viewer: {
+            zones: [
+              {
+                series: [
+                  { sum: { edgeResponseBytes: 1024 } },
+                  { sum: { edgeResponseBytes: 2048 } },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
   };
   const backgroundTasks = [];
-  const ctx = { waitUntil(task) { backgroundTasks.push(Promise.resolve(task)); } };
+  const ctx = {
+    waitUntil(task) {
+      backgroundTasks.push(Promise.resolve(task));
+    },
+  };
 
   invalidateRuntimeConfigCache();
   isolateState.DashboardMonthlyTrafficCache.clear();
   await withWorkerGlobals({ fetch, caches: { default: edgeCache } }, async () => {
-    const firstResponse = await adminActions.getMonthlyTrafficStats({}, {
-      env,
-      ctx,
-      kv,
-      db: d1
-    });
+    const firstResponse = await adminActions.getMonthlyTrafficStats(
+      {},
+      {
+        env,
+        ctx,
+        kv,
+        db: d1,
+      },
+    );
     const firstPayload = await firstResponse.json();
     assert.equal(firstPayload.cfAnalyticsLoaded, true);
     assert.equal(firstPayload.period, "month");
@@ -911,22 +999,28 @@ test("monthly traffic stats are on-demand cached without touching D1", async () 
     const liveRequestCount = graphqlRequestCount;
     await Promise.all(backgroundTasks.splice(0));
 
-    const memoryResponse = await adminActions.getMonthlyTrafficStats({}, {
-      env,
-      ctx,
-      kv,
-      db: d1
-    });
+    const memoryResponse = await adminActions.getMonthlyTrafficStats(
+      {},
+      {
+        env,
+        ctx,
+        kv,
+        db: d1,
+      },
+    );
     assert.equal((await memoryResponse.json()).cacheStatus, "cache");
     assert.equal(graphqlRequestCount, liveRequestCount);
 
     isolateState.DashboardMonthlyTrafficCache.clear();
-    const edgeResponse = await adminActions.getMonthlyTrafficStats({}, {
-      env,
-      ctx,
-      kv,
-      db: d1
-    });
+    const edgeResponse = await adminActions.getMonthlyTrafficStats(
+      {},
+      {
+        env,
+        ctx,
+        kv,
+        db: d1,
+      },
+    );
     assert.equal((await edgeResponse.json()).cacheStatus, "cache");
     assert.equal(graphqlRequestCount, liveRequestCount);
   });
@@ -938,7 +1032,7 @@ test("monthly traffic splits GraphQL windows to one day while preserving edge re
     monthKey: "2026-07",
     periodLabel: "2026年7月",
     startTs: Date.parse("2026-07-01T00:00:00.000Z"),
-    endTs: Date.parse("2026-07-03T12:00:00.000Z")
+    endTs: Date.parse("2026-07-03T12:00:00.000Z"),
   };
   const ranges = [];
   const fetch = async (input, init = {}) => {
@@ -952,34 +1046,39 @@ test("monthly traffic splits GraphQL windows to one day while preserving edge re
     const endTs = Date.parse(endMatch[1]);
     assert.ok(endTs - startTs < dayMs);
     ranges.push({ startTs, endTs });
-    return new Response(JSON.stringify({
-      data: {
-        viewer: {
-          zones: [{ series: [{ sum: { edgeResponseBytes: 1024 } }] }]
-        }
-      }
-    }), { headers: { "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        data: {
+          viewer: {
+            zones: [{ series: [{ sum: { edgeResponseBytes: 1024 } }] }],
+          },
+        },
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
   };
 
   await withWorkerGlobals({ fetch }, async () => {
-    const payload = await kernel.buildDashboardMonthlyTrafficPayload({}, {
-      config: {
-        cfZoneId: "monthly-zone",
-        cfApiToken: "monthly-token",
-        scheduleUtcOffsetMinutes: 0
+    const payload = await kernel.buildDashboardMonthlyTrafficPayload(
+      {},
+      {
+        config: {
+          cfZoneId: "monthly-zone",
+          cfApiToken: "monthly-token",
+          scheduleUtcOffsetMinutes: 0,
+        },
+        monthWindow,
+        nowMs: monthWindow.endTs,
       },
-      monthWindow,
-      nowMs: monthWindow.endTs
-    });
+    );
     assert.equal(payload.totalBytes, 3 * 1024);
     assert.equal(payload.traffic, "3 KB");
   });
   assert.equal(ranges.length, 3);
-  assert.deepEqual(ranges.map(range => range.startTs), [
-    monthWindow.startTs,
-    monthWindow.startTs + dayMs,
-    monthWindow.startTs + 2 * dayMs
-  ]);
+  assert.deepEqual(
+    ranges.map((range) => range.startTs),
+    [monthWindow.startTs, monthWindow.startTs + dayMs, monthWindow.startTs + 2 * dayMs],
+  );
 });
 
 test("monthly traffic falls back to the KV day archive when Cloudflare drops out-of-retention days", async () => {
@@ -991,7 +1090,7 @@ test("monthly traffic falls back to the KV day archive when Cloudflare drops out
     monthKey: "2026-07",
     periodLabel: "2026年7月",
     startTs: Date.parse("2026-07-01T00:00:00.000Z"),
-    endTs: nowMsValue
+    endTs: nowMsValue,
   };
   const archivedBytes = 100;
   const archivedDays = [];
@@ -1011,22 +1110,30 @@ test("monthly traffic falls back to the KV day archive when Cloudflare drops out
     const startMatch = /datetime_geq:\s*"([^"]+)"/.exec(query);
     assert.ok(startMatch);
     if (Date.parse(startMatch[1]) < cutoffTs) {
-      return new Response(JSON.stringify({ errors: [{ message: "cf_graphql_error" }] }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ errors: [{ message: "cf_graphql_error" }] }), {
+        headers: { "Content-Type": "application/json" },
+      });
     }
-    return new Response(JSON.stringify({
-      data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 3072 } }] }] } }
-    }), { headers: { "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 3072 } }] }] } },
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
   };
   await withWorkerGlobals({ fetch }, async () => {
-    const payload = await kernel.buildDashboardMonthlyTrafficPayload({ ENI_KV: kv }, {
-      config: {
-        cfZoneId: zoneId,
-        cfApiToken: "archive-token",
-        scheduleUtcOffsetMinutes: 0
+    const payload = await kernel.buildDashboardMonthlyTrafficPayload(
+      { ENI_KV: kv },
+      {
+        config: {
+          cfZoneId: zoneId,
+          cfApiToken: "archive-token",
+          scheduleUtcOffsetMinutes: 0,
+        },
+        monthWindow,
+        nowMs: nowMsValue,
       },
-      monthWindow,
-      nowMs: nowMsValue
-    });
+    );
     assert.equal(payload.cfAnalyticsLoaded, true);
     assert.equal(payload.totalBytes, archivedDays.length * archivedBytes + 7 * 3072);
     assert.equal(payload.warning, "");
@@ -1046,27 +1153,35 @@ test("monthly traffic reports a partial total when no CF or archive data exists"
     const query = String(JSON.parse(String(init.body || "{}")).query || "");
     const startMatch = /datetime_geq:\s*"([^"]+)"/.exec(query);
     if (Date.parse(startMatch[1]) < cutoffTs) {
-      return new Response(JSON.stringify({ errors: [{ message: "cf_graphql_error" }] }), { headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ errors: [{ message: "cf_graphql_error" }] }), {
+        headers: { "Content-Type": "application/json" },
+      });
     }
-    return new Response(JSON.stringify({
-      data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 1024 } }] }] } }
-    }), { headers: { "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 1024 } }] }] } },
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
   };
   await withWorkerGlobals({ fetch }, async () => {
-    const payload = await kernel.buildDashboardMonthlyTrafficPayload({ ENI_KV: kv }, {
-      config: {
-        cfZoneId: zoneId,
-        cfApiToken: "partial-token",
-        scheduleUtcOffsetMinutes: 0
+    const payload = await kernel.buildDashboardMonthlyTrafficPayload(
+      { ENI_KV: kv },
+      {
+        config: {
+          cfZoneId: zoneId,
+          cfApiToken: "partial-token",
+          scheduleUtcOffsetMinutes: 0,
+        },
+        monthWindow: {
+          monthKey: "2026-07",
+          periodLabel: "2026年7月",
+          startTs: Date.parse("2026-07-01T00:00:00.000Z"),
+          endTs: nowMsValue,
+        },
+        nowMs: nowMsValue,
       },
-      monthWindow: {
-        monthKey: "2026-07",
-        periodLabel: "2026年7月",
-        startTs: Date.parse("2026-07-01T00:00:00.000Z"),
-        endTs: nowMsValue
-      },
-      nowMs: nowMsValue
-    });
+    );
     assert.equal(payload.cfAnalyticsLoaded, true);
     assert.equal(payload.totalBytes, 7 * 1024);
     assert.match(payload.warning, /本地归档缺失 8 天/);
@@ -1078,18 +1193,25 @@ test("scheduled CF traffic archive snapshots the last complete days into KV", as
   const zoneId = "snapshot-zone";
   const { kv, putKeys, storedValues } = createInMemoryKvStore();
   const nowMsValue = Date.parse("2026-07-15T12:00:00.000Z");
-  const fetch = async () => new Response(JSON.stringify({
-    data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 2048 } }] }] } }
-  }), { headers: { "Content-Type": "application/json" } });
+  const fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: { viewer: { zones: [{ series: [{ sum: { edgeResponseBytes: 2048 } }] }] } },
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
   await withWorkerGlobals({ fetch }, async () => {
-    const result = await kernel.snapshotCfDailyTrafficArchive({ ENI_KV: kv }, {
-      config: {
-        cfZoneId: zoneId,
-        cfApiToken: "snapshot-token",
-        scheduleUtcOffsetMinutes: 0
+    const result = await kernel.snapshotCfDailyTrafficArchive(
+      { ENI_KV: kv },
+      {
+        config: {
+          cfZoneId: zoneId,
+          cfApiToken: "snapshot-token",
+          scheduleUtcOffsetMinutes: 0,
+        },
+        nowMs: nowMsValue,
       },
-      nowMs: nowMsValue
-    });
+    );
     assert.equal(result.status, "success");
     assert.equal(result.storedCount, 6);
   });
@@ -1099,9 +1221,12 @@ test("scheduled CF traffic archive snapshots the last complete days into KV", as
     `sys:cf_daily_traffic:${zoneId}:2026-07-11`,
     `sys:cf_daily_traffic:${zoneId}:2026-07-12`,
     `sys:cf_daily_traffic:${zoneId}:2026-07-13`,
-    `sys:cf_daily_traffic:${zoneId}:2026-07-14`
+    `sys:cf_daily_traffic:${zoneId}:2026-07-14`,
   ]);
-  assert.equal(JSON.parse(storedValues.get(`sys:cf_daily_traffic:${zoneId}:2026-07-14`)).bytes, 2048);
+  assert.equal(
+    JSON.parse(storedValues.get(`sys:cf_daily_traffic:${zoneId}:2026-07-14`)).bytes,
+    2048,
+  );
 });
 
 test("remote shell error responses are no-store and never expose saved secrets", async () => {
@@ -1114,7 +1239,7 @@ test("remote shell error responses are no-store and never expose saved secrets",
     },
     async put() {
       cacheWriteCount += 1;
-    }
+    },
   };
   const env = { ADMIN_PATH: "/admin" };
   const initHealth = { ok: true, missing: [] };
@@ -1122,11 +1247,11 @@ test("remote shell error responses are no-store and never expose saved secrets",
     cfApiToken: "cf-api-token-must-not-leak",
     tgBotToken: "telegram-token-must-not-leak",
     tgChatId: "chat-id-must-not-leak",
-    indexUrl: "https://example.test/releases/v1/index.html"
+    indexUrl: "https://example.test/releases/v1/index.html",
   };
   const statusOptions = {
     reason: "remote_shell_render_failed: upstream unavailable",
-    remoteShellIndexUrl: config.indexUrl
+    remoteShellIndexUrl: config.indexUrl,
   };
 
   await withWorkerGlobals({ caches: { default: edgeCache } }, async () => {
@@ -1136,14 +1261,17 @@ test("remote shell error responses are no-store and never expose saved secrets",
       null,
       initHealth,
       statusOptions,
-      config
+      config,
     );
     const html = await response.text();
 
     assert.equal(response.headers.get("Cache-Control"), "no-store, max-age=0");
     assert.match(html, /href="\/admin\?setup=1"/);
     assert.doesNotMatch(html, /saveConfig|currentConfig|cfApiToken|tgBotToken/);
-    assert.doesNotMatch(html, /cf-api-token-must-not-leak|telegram-token-must-not-leak|chat-id-must-not-leak/);
+    assert.doesNotMatch(
+      html,
+      /cf-api-token-must-not-leak|telegram-token-must-not-leak|chat-id-must-not-leak/,
+    );
 
     const headResponse = await renderAdminRemoteShellErrorPage(
       new Request("https://worker.test/admin", { method: "HEAD" }),
@@ -1151,7 +1279,7 @@ test("remote shell error responses are no-store and never expose saved secrets",
       null,
       initHealth,
       statusOptions,
-      config
+      config,
     );
     assert.equal(headResponse.headers.get("Cache-Control"), "no-store, max-age=0");
     assert.equal(await headResponse.text(), "");
@@ -1162,7 +1290,11 @@ test("remote shell error responses are no-store and never expose saved secrets",
 });
 
 test("stable admin shell cache-hit status writes are throttled per D1 binding", async () => {
-  const db = { prepare() { throw new Error("unexpected D1 query"); } };
+  const db = {
+    prepare() {
+      throw new Error("unexpected D1 query");
+    },
+  };
   const env = { DB: db, ADMIN_PATH: "/admin" };
   const originalPatchOpsStatus = kernel.patchOpsStatus;
   const writes = [];
@@ -1175,7 +1307,7 @@ test("stable admin shell cache-hit status writes are throttled per D1 binding", 
       remoteShellConfigured: true,
       embeddedFallbackAvailable: true,
       finalUiHtmlRetired: true,
-      remoteShellIndexUrl: "https://example.test/releases/v1/index.html"
+      remoteShellIndexUrl: "https://example.test/releases/v1/index.html",
     },
     initHealth: { ok: true, missing: [] },
     mode: "remote",
@@ -1185,29 +1317,30 @@ test("stable admin shell cache-hit status writes are throttled per D1 binding", 
     lastFetchStatus: "cached",
     reason: "served_cached_remote_shell",
     requestPath: "/admin",
-    throttleStableWrites: true
+    throttleStableWrites: true,
   };
 
   try {
     await patchAdminShellRuntimeStatus(env, baseStatus);
     await patchAdminShellRuntimeStatus(env, baseStatus);
     assert.equal(writes.length, 1);
-    assert.deepEqual(
-      Object.keys(isolateState.AdminShellStatusWriteState.get(db) || {}).sort(),
-      ["fingerprint", "writePromise", "writtenAt"]
-    );
+    assert.deepEqual(Object.keys(isolateState.AdminShellStatusWriteState.get(db) || {}).sort(), [
+      "fingerprint",
+      "writePromise",
+      "writtenAt",
+    ]);
 
     await patchAdminShellRuntimeStatus(env, {
       ...baseStatus,
       remoteCacheState: "stale_hit",
       revalidateDue: true,
-      reason: "served_cached_remote_shell_and_scheduled_revalidate"
+      reason: "served_cached_remote_shell_and_scheduled_revalidate",
     });
     assert.equal(writes.length, 2);
 
     await patchAdminShellRuntimeStatus(env, {
       ...baseStatus,
-      throttleStableWrites: false
+      throttleStableWrites: false,
     });
     assert.equal(writes.length, 3);
   } finally {
@@ -1220,7 +1353,7 @@ test("error content contains only the manual setup link", () => {
     { adminPath: "/console", loginPath: "/console/login" },
     { remoteShellIndexUrl: "https://example.test/index.html" },
     {},
-    { reason: "upstream unavailable" }
+    { reason: "upstream unavailable" },
   );
 
   assert.match(html, /href="\/console\?setup=1"/);
@@ -1232,7 +1365,10 @@ test("setup query accepts only 1 and true", () => {
   assert.equal(isAdminIndexSetupForced(new Request("https://worker.test/admin?setup=true")), true);
   assert.equal(isAdminIndexSetupForced(new Request("https://worker.test/admin?setup=TRUE")), true);
   assert.equal(isAdminIndexSetupForced(new Request("https://worker.test/admin?setup=0")), false);
-  assert.equal(isAdminIndexSetupForced(new Request("https://worker.test/admin?setup=false")), false);
+  assert.equal(
+    isAdminIndexSetupForced(new Request("https://worker.test/admin?setup=false")),
+    false,
+  );
   assert.equal(isAdminIndexSetupForced(new Request("https://worker.test/admin")), false);
 });
 
@@ -1242,15 +1378,16 @@ test("admin login page emits valid submit interception script", async () => {
     {
       ADMIN_PATH: "/console/",
       ADMIN_PASS: "test-password",
-      JWT_SECRET: "test-secret"
+      JWT_SECRET: "test-secret",
     },
-    { ok: true, missing: [] }
+    { ok: true, missing: [] },
   );
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "no-store, max-age=0");
   const html = await response.text();
-  const loginScript = html.match(/<script>\s*(const ADMIN_LOGIN_RUNTIME[\s\S]*?)<\/script>/)?.[1] || "";
+  const loginScript =
+    html.match(/<script>\s*(const ADMIN_LOGIN_RUNTIME[\s\S]*?)<\/script>/)?.[1] || "";
   assert.ok(loginScript, "login submit script must be present");
   assert.match(loginScript, /\.replace\(\/\\\/\+\$\/, ""\)/);
   assert.match(loginScript, /payload\?\.remain/);
@@ -1265,14 +1402,14 @@ test("admin login preserves leading and trailing password whitespace", async () 
     new Request("https://worker.test/console/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: "  exact password  " })
+      body: JSON.stringify({ password: "  exact password  " }),
     }),
     {
       ADMIN_PATH: "/console",
       ADMIN_PASS: "  exact password  ",
-      JWT_SECRET: "test-secret"
+      JWT_SECRET: "test-secret",
     },
-    { waitUntil() {} }
+    { waitUntil() {} },
   );
 
   assert.equal(response.status, 200);
@@ -1301,7 +1438,7 @@ test("manual setup renders GET and HEAD as no-store with the recovery reason", a
       { ADMIN_PATH: "/console" },
       null,
       { ok: true, missing: [] },
-      { indexUrl: "https://example.test/releases/v1/index.html" }
+      { indexUrl: "https://example.test/releases/v1/index.html" },
     );
     assert.equal(getResponse.status, 200);
     assert.equal(getResponse.headers.get("Cache-Control"), "no-store, max-age=0");
@@ -1309,8 +1446,12 @@ test("manual setup renders GET and HEAD as no-store with the recovery reason", a
     assert.match(setupHtml, /class="admin-gate-shell"/);
     assert.match(setupHtml, /id="admin-gate-local-file"/);
     assert.match(setupHtml, /action: "uploadAdminIndex"/);
-    assert.doesNotMatch(setupHtml, /GitHub Release|getGithubReleaseSourceOptions|saveConfig|currentConfig|INDEX_URL/);
-    const gateScript = setupHtml.match(/<script>\s*(const ADMIN_INDEX_GATE_RUNTIME[\s\S]*?)<\/script>/)?.[1] || "";
+    assert.doesNotMatch(
+      setupHtml,
+      /GitHub Release|getGithubReleaseSourceOptions|saveConfig|currentConfig|INDEX_URL/,
+    );
+    const gateScript =
+      setupHtml.match(/<script>\s*(const ADMIN_INDEX_GATE_RUNTIME[\s\S]*?)<\/script>/)?.[1] || "";
     assert.ok(gateScript, "setup gate script must be present");
     assert.match(gateScript, /\bfetch\(/);
     assert.doesNotMatch(gateScript, /\bfetchRequest\(/);
@@ -1321,7 +1462,7 @@ test("manual setup renders GET and HEAD as no-store with the recovery reason", a
       { ADMIN_PATH: "/console" },
       null,
       { ok: true, missing: [] },
-      { indexUrl: "https://example.test/releases/v1/index.html" }
+      { indexUrl: "https://example.test/releases/v1/index.html" },
     );
     assert.equal(headResponse.status, 200);
     assert.equal(headResponse.headers.get("Cache-Control"), "no-store, max-age=0");
@@ -1331,14 +1472,15 @@ test("manual setup renders GET and HEAD as no-store with the recovery reason", a
   }
 
   assert.deepEqual(
-    statusPatches.map(patch => patch.adminShell.reason),
-    ["manual_setup_requested", "manual_setup_requested"]
+    statusPatches.map((patch) => patch.adminShell.reason),
+    ["manual_setup_requested", "manual_setup_requested"],
   );
 });
 
 test("bundled frontend assets render when no uploaded admin index is configured", async () => {
   const assetRequests = [];
-  const bundledHtml = '<!doctype html><html><head><title>Bundled UI</title></head><body><div id="app" data-source="bundled"></div></body></html>';
+  const bundledHtml =
+    '<!doctype html><html><head><title>Bundled UI</title></head><body><div id="app" data-source="bundled"></div></body></html>';
   const env = {
     ADMIN_PATH: "/console",
     ASSETS: {
@@ -1347,11 +1489,11 @@ test("bundled frontend assets render when no uploaded admin index is configured"
         return new Response(bundledHtml, {
           headers: {
             "Content-Type": "text/html; charset=utf-8",
-            "ETag": '"bundled-v1"'
-          }
+            ETag: '"bundled-v1"',
+          },
         });
-      }
-    }
+      },
+    },
   };
 
   const getResponse = await renderAdminPage(
@@ -1359,7 +1501,7 @@ test("bundled frontend assets render when no uploaded admin index is configured"
     env,
     null,
     { ok: true, missing: [] },
-    {}
+    {},
   );
   const renderedHtml = await getResponse.text();
   assert.equal(getResponse.status, 200);
@@ -1376,16 +1518,18 @@ test("bundled frontend assets render when no uploaded admin index is configured"
     env,
     null,
     { ok: true, missing: [] },
-    {}
+    {},
   );
   assert.equal(headResponse.status, 200);
   assert.equal(await headResponse.text(), "");
 });
 
 test("Tailwind compatibility prelude is targeted and idempotent", () => {
-  const legacyShell = "<!doctype html><html><head><script src=\"https://cdn.tailwindcss.com\"></script><script nonce=\"abc\">tailwind.config={darkMode:'class'}</script></head><body><div id=\"app\"></div></body></html>";
+  const legacyShell =
+    '<!doctype html><html><head><script src="https://cdn.tailwindcss.com"></script><script nonce="abc">tailwind.config={darkMode:\'class\'}</script></head><body><div id="app"></div></body></html>';
   const migratedShell = ensureAdminRemoteTailwindConfigGlobal(legacyShell);
-  const prelude = '<script id="admin-tailwind-prelude">window.tailwind=window.tailwind||{};</script>';
+  const prelude =
+    '<script id="admin-tailwind-prelude">window.tailwind=window.tailwind||{};</script>';
 
   assert.equal(countOccurrences(migratedShell, prelude), 1);
   assert.ok(migratedShell.indexOf(prelude) < migratedShell.indexOf("tailwind.config"));
@@ -1393,24 +1537,38 @@ test("Tailwind compatibility prelude is targeted and idempotent", () => {
   const currentShell = `<!doctype html><html><head>${prelude}<script>tailwind.config={}</script></head><body><div id="app"></div></body></html>`;
   assert.equal(ensureAdminRemoteTailwindConfigGlobal(currentShell), currentShell);
 
-  const shellWithoutTailwindConfig = "<!doctype html><html><head><script src=\"/app.js\"></script></head><body><div id=\"app\"></div></body></html>";
-  assert.equal(ensureAdminRemoteTailwindConfigGlobal(shellWithoutTailwindConfig), shellWithoutTailwindConfig);
+  const shellWithoutTailwindConfig =
+    '<!doctype html><html><head><script src="/app.js"></script></head><body><div id="app"></div></body></html>';
+  assert.equal(
+    ensureAdminRemoteTailwindConfigGlobal(shellWithoutTailwindConfig),
+    shellWithoutTailwindConfig,
+  );
   assert.equal(ensureAdminRemoteTailwindConfigGlobal(migratedShell), migratedShell);
 });
 
 test("Tailwind compatibility distinguishes real attributes from data attributes", () => {
-  const prelude = '<script id="admin-tailwind-prelude">window.tailwind=window.tailwind||{};</script>';
-  const dataAttributeShell = '<!doctype html><html><head><script data-id="admin-tailwind-prelude"></script><script data-src="legacy.js">tailwind.config={}</script></head><body><div id="app"></div></body></html>';
+  const prelude =
+    '<script id="admin-tailwind-prelude">window.tailwind=window.tailwind||{};</script>';
+  const dataAttributeShell =
+    '<!doctype html><html><head><script data-id="admin-tailwind-prelude"></script><script data-src="legacy.js">tailwind.config={}</script></head><body><div id="app"></div></body></html>';
   const migratedShell = ensureAdminRemoteTailwindConfigGlobal(dataAttributeShell);
 
   assert.equal(countOccurrences(migratedShell, prelude), 1);
   assert.ok(migratedShell.indexOf(prelude) < migratedShell.indexOf("tailwind.config"));
 
-  const existingSingleQuotedPrelude = "<script id = 'admin-tailwind-prelude'>window.tailwind={};</script><script>tailwind.config={}</script>";
-  assert.equal(ensureAdminRemoteTailwindConfigGlobal(existingSingleQuotedPrelude), existingSingleQuotedPrelude);
+  const existingSingleQuotedPrelude =
+    "<script id = 'admin-tailwind-prelude'>window.tailwind={};</script><script>tailwind.config={}</script>";
+  assert.equal(
+    ensureAdminRemoteTailwindConfigGlobal(existingSingleQuotedPrelude),
+    existingSingleQuotedPrelude,
+  );
 
-  const quotedAttributeShell = '<script title=" id=\'admin-tailwind-prelude\' "></script><script title=" src=legacy.js ">tailwind.config={}</script>';
-  assert.equal(countOccurrences(ensureAdminRemoteTailwindConfigGlobal(quotedAttributeShell), prelude), 1);
+  const quotedAttributeShell =
+    '<script title=" id=\'admin-tailwind-prelude\' "></script><script title=" src=legacy.js ">tailwind.config={}</script>';
+  assert.equal(
+    countOccurrences(ensureAdminRemoteTailwindConfigGlobal(quotedAttributeShell), prelude),
+    1,
+  );
 });
 
 test("remote shell cache identity separates legacy, transform, and full bootstrap variants", () => {
@@ -1419,16 +1577,20 @@ test("remote shell cache identity separates legacy, transform, and full bootstra
   const bootstrapA = {
     adminPath: "/admin",
     contract: { primaryViews: ["dashboard", "settings"] },
-    initHealth: { ok: true, detail: { revision: "a" } }
+    initHealth: { ok: true, detail: { revision: "a" } },
   };
   const bootstrapB = {
     ...bootstrapA,
-    initHealth: { ok: true, detail: { revision: "b" } }
+    initHealth: { ok: true, detail: { revision: "b" } },
   };
 
   const legacyUrl = new URL(buildAdminRemoteShellLegacyCacheKeyRequest(request, sourceUrl).url);
-  const currentAUrl = new URL(buildAdminRemoteShellCacheKeyRequest(request, sourceUrl, bootstrapA).url);
-  const currentBUrl = new URL(buildAdminRemoteShellCacheKeyRequest(request, sourceUrl, bootstrapB).url);
+  const currentAUrl = new URL(
+    buildAdminRemoteShellCacheKeyRequest(request, sourceUrl, bootstrapA).url,
+  );
+  const currentBUrl = new URL(
+    buildAdminRemoteShellCacheKeyRequest(request, sourceUrl, bootstrapB).url,
+  );
 
   assert.equal(legacyUrl.searchParams.has("transform"), false);
   assert.equal(legacyUrl.searchParams.has("bootstrap"), false);
@@ -1443,14 +1605,15 @@ test("legacy stale cache migrates to the current key before one failing SWR task
   isolateState.SingleFlightTasks.clear();
   isolateState.AdminRemoteShellCacheMutationChains.clear();
   const remoteShellIndexUrl = "https://example.test/releases/v1/index.html";
-  const legacyHtml = '<!doctype html><html><head><script id="admin-bootstrap" type="application/json">{"old":true}</script><script>tailwind.config={}</script></head><body><div id="app"></div></body></html>';
+  const legacyHtml =
+    '<!doctype html><html><head><script id="admin-bootstrap" type="application/json">{"old":true}</script><script>tailwind.config={}</script></head><body><div id="app"></div></body></html>';
   const legacyResponse = buildAdminRemoteShellStoredResponse(legacyHtml, {
     variantEtag: "legacy-browser-etag",
     lastModified: "Wed, 01 Jul 2026 12:00:00 GMT",
     originEtag: "legacy-upstream-etag",
     originLastModified: "Tue, 30 Jun 2026 12:00:00 GMT",
     sourceUrl: remoteShellIndexUrl,
-    cachedAt: 1
+    cachedAt: 1,
   });
   const events = [];
   const storedWrites = [];
@@ -1470,48 +1633,57 @@ test("legacy stale cache migrates to the current key before one failing SWR task
       storedWrites.push({
         url,
         cachedAt: response.headers.get("X-Admin-Shell-Cached-At"),
-        html: await response.clone().text()
+        html: await response.clone().text(),
       });
-    }
+    },
   };
   const ctx = {
     waitUntil(task) {
       backgroundTasks.push(Promise.resolve(task));
-    }
+    },
   };
   const quietConsole = Object.assign(Object.create(console), {
     warn(...args) {
       reportedWarnings.push(args);
-    }
+    },
   });
 
-  await withWorkerGlobals({
-    caches: { default: edgeCache },
-    console: quietConsole,
-    fetch: async () => {
-      events.push("revalidate");
-      throw new Error("revalidation unavailable");
-    }
-  }, async () => {
-    const response = await renderRemoteAdminPage(
-      new Request("https://worker.test/admin"),
-      { ADMIN_PATH: "/admin" },
-      ctx,
-      { ok: true, missing: [] },
-      remoteShellIndexUrl,
-      { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
-    );
-    const html = await response.text();
+  await withWorkerGlobals(
+    {
+      caches: { default: edgeCache },
+      console: quietConsole,
+      fetch: async () => {
+        events.push("revalidate");
+        throw new Error("revalidation unavailable");
+      },
+    },
+    async () => {
+      const response = await renderRemoteAdminPage(
+        new Request("https://worker.test/admin"),
+        { ADMIN_PATH: "/admin" },
+        ctx,
+        { ok: true, missing: [] },
+        remoteShellIndexUrl,
+        { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" },
+      );
+      const html = await response.text();
 
-    assert.equal(response.status, 200);
-    assert.match(html, /id="admin-tailwind-prelude"/);
-    assert.doesNotMatch(html, /\{"old":true\}/);
-    assert.equal(storedWrites.length, 1);
-    assert.equal(backgroundTasks.length, 1);
-    await Promise.all(backgroundTasks);
-  });
+      assert.equal(response.status, 200);
+      assert.match(html, /id="admin-tailwind-prelude"/);
+      assert.doesNotMatch(html, /\{"old":true\}/);
+      assert.equal(storedWrites.length, 1);
+      assert.equal(backgroundTasks.length, 1);
+      await Promise.all(backgroundTasks);
+    },
+  );
 
-  assert.deepEqual(events, ["match:current", "match:legacy", "match:current", "put:current", "revalidate"]);
+  assert.deepEqual(events, [
+    "match:current",
+    "match:legacy",
+    "match:current",
+    "put:current",
+    "revalidate",
+  ]);
   assert.equal(storedWrites.length, 1);
   assert.ok(storedWrites[0].url.searchParams.get("transform"));
   assert.ok(storedWrites[0].url.searchParams.get("bootstrap"));
@@ -1527,14 +1699,15 @@ test("concurrent legacy migration cannot overwrite a fresh revalidation in one i
   isolateState.SingleFlightTasks.clear();
   isolateState.AdminRemoteShellCacheMutationChains.clear();
   const remoteShellIndexUrl = "https://example.test/releases/v1/index.html";
-  const legacyHtml = '<!doctype html><html><head><script>tailwind.config={}</script></head><body><div id="app">legacy-marker</div></body></html>';
+  const legacyHtml =
+    '<!doctype html><html><head><script>tailwind.config={}</script></head><body><div id="app">legacy-marker</div></body></html>';
   const legacyResponse = buildAdminRemoteShellStoredResponse(legacyHtml, {
     variantEtag: "legacy-etag",
     lastModified: "Wed, 01 Jul 2026 12:00:00 GMT",
     originEtag: "legacy-upstream-etag",
     originLastModified: "Tue, 30 Jun 2026 12:00:00 GMT",
     sourceUrl: remoteShellIndexUrl,
-    cachedAt: 1
+    cachedAt: 1,
   });
   const freshCommitted = createDeferred();
   const backgroundTasks = [];
@@ -1566,42 +1739,49 @@ test("concurrent legacy migration cannot overwrite a fresh revalidation in one i
       }
       currentStoredResponse = response.clone();
       if (html.includes("fresh-marker")) freshCommitted.resolve();
-    }
+    },
   };
   const ctx = {
     waitUntil(task) {
       backgroundTasks.push(Promise.resolve(task));
-    }
+    },
   };
 
-  await withWorkerGlobals({
-    caches: { default: edgeCache },
-    fetch: async () => {
-      revalidationFetchCount += 1;
-      if (revalidationFetchCount > 1) throw new Error("duplicate revalidation");
-      return new Response('<!doctype html><html><body><div id="app">fresh-marker</div></body></html>', {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          ETag: '"fresh-upstream-etag"',
-          "Last-Modified": "Thu, 02 Jul 2026 12:00:00 GMT"
-        }
-      });
-    }
-  }, async () => {
-    const render = () => renderRemoteAdminPage(
-      new Request("https://worker.test/admin"),
-      { ADMIN_PATH: "/admin" },
-      ctx,
-      { ok: true, missing: [] },
-      remoteShellIndexUrl,
-      { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
-    );
-    const responses = await Promise.all([render(), render()]);
-    const responseBodies = await Promise.all(responses.map(response => response.text()));
-    assert.equal(responseBodies.length, 2);
-    for (const responseBody of responseBodies) assert.match(responseBody, /legacy-marker/);
-    await Promise.all(backgroundTasks);
-  });
+  await withWorkerGlobals(
+    {
+      caches: { default: edgeCache },
+      fetch: async () => {
+        revalidationFetchCount += 1;
+        if (revalidationFetchCount > 1) throw new Error("duplicate revalidation");
+        return new Response(
+          '<!doctype html><html><body><div id="app">fresh-marker</div></body></html>',
+          {
+            headers: {
+              "Content-Type": "text/html; charset=utf-8",
+              ETag: '"fresh-upstream-etag"',
+              "Last-Modified": "Thu, 02 Jul 2026 12:00:00 GMT",
+            },
+          },
+        );
+      },
+    },
+    async () => {
+      const render = () =>
+        renderRemoteAdminPage(
+          new Request("https://worker.test/admin"),
+          { ADMIN_PATH: "/admin" },
+          ctx,
+          { ok: true, missing: [] },
+          remoteShellIndexUrl,
+          { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" },
+        );
+      const responses = await Promise.all([render(), render()]);
+      const responseBodies = await Promise.all(responses.map((response) => response.text()));
+      assert.equal(responseBodies.length, 2);
+      for (const responseBody of responseBodies) assert.match(responseBody, /legacy-marker/);
+      await Promise.all(backgroundTasks);
+    },
+  );
 
   assert.equal(currentMatchCount, 2);
   assert.equal(legacyMatchCount, 1);
@@ -1622,16 +1802,16 @@ test("legacy migration waits for an in-flight fresh write after current-cache ev
     {
       variantEtag: "stale-etag",
       sourceUrl: remoteShellIndexUrl,
-      cachedAt: 1
-    }
+      cachedAt: 1,
+    },
   );
   const legacyResponse = buildAdminRemoteShellStoredResponse(
     '<!doctype html><html><body><div id="app">legacy-marker</div></body></html>',
     {
       variantEtag: "legacy-etag",
       sourceUrl: remoteShellIndexUrl,
-      cachedAt: 1
-    }
+      cachedAt: 1,
+    },
   );
   const revalidationFetchStarted = createDeferred();
   const allowFreshFetch = createDeferred();
@@ -1667,46 +1847,53 @@ test("legacy migration waits for an in-flight fresh write after current-cache ev
         return;
       }
       throw new Error("unexpected remote shell cache write");
-    }
+    },
   };
   const ctx = {
     waitUntil(task) {
       backgroundTasks.push(Promise.resolve(task));
-    }
+    },
   };
-  const render = () => renderRemoteAdminPage(
-    new Request("https://worker.test/admin"),
-    { ADMIN_PATH: "/admin" },
-    ctx,
-    { ok: true, missing: [] },
-    remoteShellIndexUrl,
-    { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
+  const render = () =>
+    renderRemoteAdminPage(
+      new Request("https://worker.test/admin"),
+      { ADMIN_PATH: "/admin" },
+      ctx,
+      { ok: true, missing: [] },
+      remoteShellIndexUrl,
+      { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" },
+    );
+
+  await withWorkerGlobals(
+    {
+      caches: { default: edgeCache },
+      fetch: async () => {
+        revalidationFetchCount += 1;
+        revalidationFetchStarted.resolve();
+        await allowFreshFetch.promise;
+        return new Response(
+          '<!doctype html><html><body><div id="app">fresh-marker</div></body></html>',
+          {
+            headers: { "Content-Type": "text/html; charset=utf-8" },
+          },
+        );
+      },
+    },
+    async () => {
+      const firstResponse = await render();
+      assert.match(await firstResponse.text(), /stale-marker/);
+      await revalidationFetchStarted.promise;
+
+      currentStoredResponse = null;
+      const secondResponsePromise = render();
+      await legacyMatchObserved.promise;
+      allowFreshFetch.resolve();
+
+      const secondResponse = await secondResponsePromise;
+      assert.match(await secondResponse.text(), /fresh-marker/);
+      await Promise.all(backgroundTasks);
+    },
   );
-
-  await withWorkerGlobals({
-    caches: { default: edgeCache },
-    fetch: async () => {
-      revalidationFetchCount += 1;
-      revalidationFetchStarted.resolve();
-      await allowFreshFetch.promise;
-      return new Response('<!doctype html><html><body><div id="app">fresh-marker</div></body></html>', {
-        headers: { "Content-Type": "text/html; charset=utf-8" }
-      });
-    }
-  }, async () => {
-    const firstResponse = await render();
-    assert.match(await firstResponse.text(), /stale-marker/);
-    await revalidationFetchStarted.promise;
-
-    currentStoredResponse = null;
-    const secondResponsePromise = render();
-    await legacyMatchObserved.promise;
-    allowFreshFetch.resolve();
-
-    const secondResponse = await secondResponsePromise;
-    assert.match(await secondResponse.text(), /fresh-marker/);
-    await Promise.all(backgroundTasks);
-  });
 
   assert.equal(revalidationFetchCount, 1);
   assert.equal(legacyMatchCount, 1);
@@ -1718,45 +1905,61 @@ test("legacy migration waits for an in-flight fresh write after current-cache ev
 });
 
 test("304 refresh preserves representation and upstream validators", async () => {
-  const previousHtml = '<!doctype html><html><head><script id="admin-tailwind-prelude">window.tailwind=window.tailwind||{};</script></head><body><div id="app"></div></body></html>';
+  const previousHtml =
+    '<!doctype html><html><head><script id="admin-tailwind-prelude">window.tailwind=window.tailwind||{};</script></head><body><div id="app"></div></body></html>';
   const previousResponse = buildAdminRemoteShellStoredResponse(previousHtml, {
     variantEtag: "browser-representation-v1",
     lastModified: "Wed, 01 Jul 2026 12:00:00 GMT",
     originEtag: "upstream-v1",
     originLastModified: "Tue, 30 Jun 2026 12:00:00 GMT",
     sourceUrl: "https://example.test/index.html",
-    cachedAt: 1
+    cachedAt: 1,
   });
   const previousHeaders = new Headers(previousResponse.headers);
   let sentHeaders = null;
 
-  await withWorkerGlobals({
-    fetch: async (_url, init) => {
-      sentHeaders = new Headers(init?.headers);
-      return new Response(null, {
-        status: 304,
-        headers: {
-          ETag: '"different-upstream-etag"',
-          "Last-Modified": "Thu, 02 Jul 2026 12:00:00 GMT"
-        }
-      });
-    }
-  }, async () => {
-    const payload = await fetchAdminRemoteShellStoredResponse(
-      "https://example.test/index.html",
-      { adminPath: "/admin" },
-      { ok: true, missing: [] },
-      previousResponse
-    );
-    const refreshedResponse = payload.storedResponse;
+  await withWorkerGlobals(
+    {
+      fetch: async (_url, init) => {
+        sentHeaders = new Headers(init?.headers);
+        return new Response(null, {
+          status: 304,
+          headers: {
+            ETag: '"different-upstream-etag"',
+            "Last-Modified": "Thu, 02 Jul 2026 12:00:00 GMT",
+          },
+        });
+      },
+    },
+    async () => {
+      const payload = await fetchAdminRemoteShellStoredResponse(
+        "https://example.test/index.html",
+        { adminPath: "/admin" },
+        { ok: true, missing: [] },
+        previousResponse,
+      );
+      const refreshedResponse = payload.storedResponse;
 
-    assert.equal(await refreshedResponse.clone().text(), previousHtml);
-    assert.equal(refreshedResponse.headers.get("ETag"), previousHeaders.get("ETag"));
-    assert.equal(refreshedResponse.headers.get("Last-Modified"), previousHeaders.get("Last-Modified"));
-    assert.equal(refreshedResponse.headers.get("X-Admin-Shell-Source-Etag"), previousHeaders.get("X-Admin-Shell-Source-Etag"));
-    assert.equal(refreshedResponse.headers.get("X-Admin-Shell-Source-Last-Modified"), previousHeaders.get("X-Admin-Shell-Source-Last-Modified"));
-    assert.notEqual(refreshedResponse.headers.get("X-Admin-Shell-Cached-At"), previousHeaders.get("X-Admin-Shell-Cached-At"));
-  });
+      assert.equal(await refreshedResponse.clone().text(), previousHtml);
+      assert.equal(refreshedResponse.headers.get("ETag"), previousHeaders.get("ETag"));
+      assert.equal(
+        refreshedResponse.headers.get("Last-Modified"),
+        previousHeaders.get("Last-Modified"),
+      );
+      assert.equal(
+        refreshedResponse.headers.get("X-Admin-Shell-Source-Etag"),
+        previousHeaders.get("X-Admin-Shell-Source-Etag"),
+      );
+      assert.equal(
+        refreshedResponse.headers.get("X-Admin-Shell-Source-Last-Modified"),
+        previousHeaders.get("X-Admin-Shell-Source-Last-Modified"),
+      );
+      assert.notEqual(
+        refreshedResponse.headers.get("X-Admin-Shell-Cached-At"),
+        previousHeaders.get("X-Admin-Shell-Cached-At"),
+      );
+    },
+  );
 
   assert.equal(sentHeaders.get("If-None-Match"), "upstream-v1");
   assert.equal(sentHeaders.get("If-Modified-Since"), "Tue, 30 Jun 2026 12:00:00 GMT");
@@ -1773,42 +1976,45 @@ test("cached remote shell route returns a stable conditional 304", async () => {
       originEtag: "route-upstream-etag",
       originLastModified: "Tue, 30 Jun 2026 12:00:00 GMT",
       sourceUrl: remoteShellIndexUrl,
-      cachedAt: Date.now()
-    }
+      cachedAt: Date.now(),
+    },
   );
   let cacheReadCount = 0;
   let fetchCount = 0;
 
-  await withWorkerGlobals({
-    caches: {
-      default: {
-        async match() {
-          cacheReadCount += 1;
-          return cachedResponse.clone();
-        }
-      }
+  await withWorkerGlobals(
+    {
+      caches: {
+        default: {
+          async match() {
+            cacheReadCount += 1;
+            return cachedResponse.clone();
+          },
+        },
+      },
+      fetch: async () => {
+        fetchCount += 1;
+        throw new Error("fresh cache must not revalidate");
+      },
     },
-    fetch: async () => {
-      fetchCount += 1;
-      throw new Error("fresh cache must not revalidate");
-    }
-  }, async () => {
-    const response = await renderRemoteAdminPage(
-      new Request("https://worker.test/admin", {
-        headers: { "If-None-Match": '"route-representation-etag"' }
-      }),
-      { ADMIN_PATH: "/admin" },
-      null,
-      { ok: true, missing: [] },
-      remoteShellIndexUrl,
-      { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
-    );
+    async () => {
+      const response = await renderRemoteAdminPage(
+        new Request("https://worker.test/admin", {
+          headers: { "If-None-Match": '"route-representation-etag"' },
+        }),
+        { ADMIN_PATH: "/admin" },
+        null,
+        { ok: true, missing: [] },
+        remoteShellIndexUrl,
+        { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" },
+      );
 
-    assert.equal(response.status, 304);
-    assert.equal(response.headers.get("ETag"), '"route-representation-etag"');
-    assert.equal(response.headers.get("Last-Modified"), null);
-    assert.equal(await response.text(), "");
-  });
+      assert.equal(response.status, 304);
+      assert.equal(response.headers.get("ETag"), '"route-representation-etag"');
+      assert.equal(response.headers.get("Last-Modified"), null);
+      assert.equal(await response.text(), "");
+    },
+  );
 
   assert.equal(cacheReadCount, 1);
   assert.equal(fetchCount, 0);
@@ -1825,34 +2031,37 @@ test("remote shell does not reuse source Last-Modified for transformed represent
       lastModified: "Wed, 01 Jul 2026 12:00:00 GMT",
       originLastModified: "Wed, 01 Jul 2026 12:00:00 GMT",
       sourceUrl: remoteShellIndexUrl,
-      cachedAt: Date.now()
-    }
+      cachedAt: Date.now(),
+    },
   );
 
-  await withWorkerGlobals({
-    caches: {
-      default: {
-        async match() {
-          return cachedResponse.clone();
-        }
-      }
-    }
-  }, async () => {
-    const response = await renderRemoteAdminPage(
-      new Request("https://worker.test/admin", {
-        headers: { "If-Modified-Since": "Wed, 01 Jul 2026 12:00:00 GMT" }
-      }),
-      { ADMIN_PATH: "/admin" },
-      null,
-      { ok: true, missing: [] },
-      remoteShellIndexUrl,
-      { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
-    );
+  await withWorkerGlobals(
+    {
+      caches: {
+        default: {
+          async match() {
+            return cachedResponse.clone();
+          },
+        },
+      },
+    },
+    async () => {
+      const response = await renderRemoteAdminPage(
+        new Request("https://worker.test/admin", {
+          headers: { "If-Modified-Since": "Wed, 01 Jul 2026 12:00:00 GMT" },
+        }),
+        { ADMIN_PATH: "/admin" },
+        null,
+        { ok: true, missing: [] },
+        remoteShellIndexUrl,
+        { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" },
+      );
 
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("Last-Modified"), null);
-    assert.match(await response.text(), /new-bootstrap/);
-  });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Last-Modified"), null);
+      assert.match(await response.text(), /new-bootstrap/);
+    },
+  );
 });
 
 test("concurrent remote shell cold loads share one upstream fetch", async () => {
@@ -1865,38 +2074,46 @@ test("concurrent remote shell cold loads share one upstream fetch", async () => 
   kernel.patchOpsStatus = async () => null;
 
   try {
-    await withWorkerGlobals({
-      caches: {
-        default: {
-          async match() {
-            return null;
+    await withWorkerGlobals(
+      {
+        caches: {
+          default: {
+            async match() {
+              return null;
+            },
+            async put() {
+              cacheWriteCount += 1;
+            },
           },
-          async put() {
-            cacheWriteCount += 1;
-          }
-        }
+        },
+        fetch: async () => {
+          upstreamFetchCount += 1;
+          await fetchGate.promise;
+          return new Response('<!doctype html><html><body><div id="app"></div></body></html>', {
+            headers: { "Content-Type": "text/html", ETag: '"v1"' },
+          });
+        },
       },
-      fetch: async () => {
-        upstreamFetchCount += 1;
-        await fetchGate.promise;
-        return new Response('<!doctype html><html><body><div id="app"></div></body></html>', {
-          headers: { "Content-Type": "text/html", ETag: '"v1"' }
-        });
-      }
-    }, async () => {
-      const requests = Array.from({ length: 6 }, () => renderRemoteAdminPage(
-        new Request("https://worker.test/admin"),
-        { ADMIN_PATH: "/admin" },
-        null,
-        { ok: true, missing: [] },
-        remoteShellIndexUrl,
-        { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
-      ));
-      await Promise.resolve();
-      fetchGate.resolve();
-      const responses = await Promise.all(requests);
-      assert.deepEqual(responses.map(response => response.status), [200, 200, 200, 200, 200, 200]);
-    });
+      async () => {
+        const requests = Array.from({ length: 6 }, () =>
+          renderRemoteAdminPage(
+            new Request("https://worker.test/admin"),
+            { ADMIN_PATH: "/admin" },
+            null,
+            { ok: true, missing: [] },
+            remoteShellIndexUrl,
+            { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" },
+          ),
+        );
+        await Promise.resolve();
+        fetchGate.resolve();
+        const responses = await Promise.all(requests);
+        assert.deepEqual(
+          responses.map((response) => response.status),
+          [200, 200, 200, 200, 200, 200],
+        );
+      },
+    );
   } finally {
     kernel.patchOpsStatus = originalPatchOpsStatus;
   }
@@ -1912,42 +2129,45 @@ test("cached remote shell responses are materialized before leaving their loader
   const remoteShellIndexUrl = "https://example.test/releases/v1/index.html";
   const matchedResponse = buildAdminRemoteShellStoredResponse(
     '<!doctype html><html><body><div id="app">cached-shell</div></body></html>',
-    { variantEtag: "cached-etag", sourceUrl: remoteShellIndexUrl }
+    { variantEtag: "cached-etag", sourceUrl: remoteShellIndexUrl },
   );
   // A cache-matched Response belongs to the request that matched it. Reusing it from another
   // request handler is an I/O error in the Workers runtime, so the loader must not hand it out.
   Object.defineProperty(matchedResponse, "clone", {
     value() {
       throw new Error("Cannot perform I/O on behalf of a different request");
-    }
+    },
   });
   let cacheWriteCount = 0;
   const originalPatchOpsStatus = kernel.patchOpsStatus;
   kernel.patchOpsStatus = async () => null;
   try {
-    await withWorkerGlobals({
-      caches: {
-        default: {
-          async match() {
-            return matchedResponse;
+    await withWorkerGlobals(
+      {
+        caches: {
+          default: {
+            async match() {
+              return matchedResponse;
+            },
+            async put() {
+              cacheWriteCount += 1;
+            },
           },
-          async put() {
-            cacheWriteCount += 1;
-          }
-        }
-      }
-    }, async () => {
-      const response = await renderRemoteAdminPage(
-        new Request("https://worker.test/admin"),
-        { ADMIN_PATH: "/admin" },
-        { waitUntil() {} },
-        { ok: true, missing: [] },
-        remoteShellIndexUrl,
-        { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" }
-      );
-      assert.equal(response.status, 200);
-      assert.match(await response.text(), /cached-shell/);
-    });
+        },
+      },
+      async () => {
+        const response = await renderRemoteAdminPage(
+          new Request("https://worker.test/admin"),
+          { ADMIN_PATH: "/admin" },
+          { waitUntil() {} },
+          { ok: true, missing: [] },
+          remoteShellIndexUrl,
+          { indexUrl: remoteShellIndexUrl, releaseTag: "v1.0.0" },
+        );
+        assert.equal(response.status, 200);
+        assert.match(await response.text(), /cached-shell/);
+      },
+    );
   } finally {
     kernel.patchOpsStatus = originalPatchOpsStatus;
   }
@@ -1964,7 +2184,7 @@ test("vendor warmup preserves order and limits concurrency", async () => {
   const warmTask = warmAdminReleaseVendorEntries(entries, async (entry) => {
     activeCount += 1;
     peakActiveCount = Math.max(peakActiveCount, activeCount);
-    await new Promise(resolve => releaseNext.push(resolve));
+    await new Promise((resolve) => releaseNext.push(resolve));
     activeCount -= 1;
     return entry.assetKey;
   });
@@ -1978,7 +2198,10 @@ test("vendor warmup preserves order and limits concurrency", async () => {
   const responses = await warmTask;
 
   assert.equal(peakActiveCount, 3);
-  assert.deepEqual(responses, entries.map(entry => entry.assetKey));
+  assert.deepEqual(
+    responses,
+    entries.map((entry) => entry.assetKey),
+  );
 });
 
 test("admin warm subrequests are unconditional and treat cached 304 responses as success", () => {
@@ -1995,19 +2218,25 @@ test("admin warm subrequests are unconditional and treat cached 304 responses as
 
 test("metadata cache keys partition identities without exposing credentials", async () => {
   const anonymousRequest = new Request("https://worker.test/nodes/alpha/Images/Primary?tag=v1");
-  const firstIdentityRequest = new Request("https://worker.test/nodes/alpha/Images/Primary?api_key=secret-a&UserId=user-a&tag=v1", {
-    headers: {
-      "X-Emby-Token": "header-secret-a",
-      "Cookie": "auth_token=admin-cookie; emby_session=session-a"
-    }
-  });
-  const secondIdentityRequest = new Request("https://worker.test/nodes/alpha/Images/Primary?api_key=secret-b&UserId=user-b&tag=v1", {
-    headers: { "X-Emby-Token": "header-secret-b" }
-  });
+  const firstIdentityRequest = new Request(
+    "https://worker.test/nodes/alpha/Images/Primary?api_key=secret-a&UserId=user-a&tag=v1",
+    {
+      headers: {
+        "X-Emby-Token": "header-secret-a",
+        Cookie: "auth_token=admin-cookie; emby_session=session-a",
+      },
+    },
+  );
+  const secondIdentityRequest = new Request(
+    "https://worker.test/nodes/alpha/Images/Primary?api_key=secret-b&UserId=user-b&tag=v1",
+    {
+      headers: { "X-Emby-Token": "header-secret-b" },
+    },
+  );
   const [anonymousPartition, firstPartition, secondPartition] = await Promise.all([
     buildWorkerMetadataCacheIdentityPartition(anonymousRequest),
     buildWorkerMetadataCacheIdentityPartition(firstIdentityRequest),
-    buildWorkerMetadataCacheIdentityPartition(secondIdentityRequest)
+    buildWorkerMetadataCacheIdentityPartition(secondIdentityRequest),
   ]);
 
   assert.match(anonymousPartition, /^[a-f0-9]{64}$/);
@@ -2017,7 +2246,7 @@ test("metadata cache keys partition identities without exposing credentials", as
 
   const policyRevision = buildWorkerMetadataCachePolicyRevision("/Items/1/Images/Primary", {
     imageCacheMaxAge: 3600,
-    prewarmCacheTtl: 120
+    prewarmCacheTtl: 120,
   });
   const firstKey = buildCanonicalWorkerMetadataCacheKey(
     new URL(firstIdentityRequest.url),
@@ -2029,8 +2258,8 @@ test("metadata cache keys partition identities without exposing credentials", as
       nodeCacheRevision: "node-r1",
       entryMode: "kv_route",
       identityPartition: firstPartition,
-      cachePolicyRevision: policyRevision
-    }
+      cachePolicyRevision: policyRevision,
+    },
   );
   const secondKey = buildCanonicalWorkerMetadataCacheKey(
     new URL(secondIdentityRequest.url),
@@ -2042,33 +2271,41 @@ test("metadata cache keys partition identities without exposing credentials", as
       nodeCacheRevision: "node-r1",
       entryMode: "kv_route",
       identityPartition: secondPartition,
-      cachePolicyRevision: policyRevision
-    }
+      cachePolicyRevision: policyRevision,
+    },
   );
 
   assert.ok(firstKey instanceof Request);
   assert.ok(secondKey instanceof Request);
   assert.notEqual(firstKey.url, secondKey.url);
   assert.doesNotMatch(firstKey.url, /secret-a|header-secret-a|session-a|user-a/);
-  assert.equal(buildCanonicalWorkerMetadataCacheKey(firstIdentityRequest.url, "alpha", "node-key", "/Items/1/Images/Primary"), null);
+  assert.equal(
+    buildCanonicalWorkerMetadataCacheKey(
+      firstIdentityRequest.url,
+      "alpha",
+      "node-key",
+      "/Items/1/Images/Primary",
+    ),
+    null,
+  );
 });
 
 test("metadata prewarm partitions each target's sensitive query", async () => {
   const sourceRequest = new Request("https://worker.test/alpha/Items", {
     headers: {
       "X-Emby-Token": "shared-header-secret",
-      "Cookie": "emby_session=shared-session"
-    }
+      Cookie: "emby_session=shared-session",
+    },
   });
   const [firstPartition, secondPartition] = await Promise.all([
     buildWorkerMetadataPrewarmIdentityPartition(
       sourceRequest,
-      new URL("https://origin.test/Items/1/Images/Primary?api_key=target-secret-a&tag=v1")
+      new URL("https://origin.test/Items/1/Images/Primary?api_key=target-secret-a&tag=v1"),
     ),
     buildWorkerMetadataPrewarmIdentityPartition(
       sourceRequest,
-      new URL("https://origin.test/Items/1/Images/Primary?api_key=target-secret-b&tag=v1")
-    )
+      new URL("https://origin.test/Items/1/Images/Primary?api_key=target-secret-b&tag=v1"),
+    ),
   ]);
 
   assert.match(firstPartition, /^[a-f0-9]{64}$/);
@@ -2081,26 +2318,28 @@ test("metadata prewarm single-flight has four slots and always releases failed e
   tasks.clear();
   const gate = createDeferred();
   let started = 0;
-  const flights = Array.from({ length: 4 }, (_, index) => proxyService.runMetadataPrewarmSingleFlight(
-    new Request(`https://cache.test/asset-${index}`),
-    async () => {
-      started += 1;
-      await gate.promise;
-      return { cached: true, bytes: 1 };
-    }
-  ));
+  const flights = Array.from({ length: 4 }, (_, index) =>
+    proxyService.runMetadataPrewarmSingleFlight(
+      new Request(`https://cache.test/asset-${index}`),
+      async () => {
+        started += 1;
+        await gate.promise;
+        return { cached: true, bytes: 1 };
+      },
+    ),
+  );
   await Promise.resolve();
   assert.equal(started, 4);
   assert.equal(tasks.size, 4);
 
   const rejectedForCapacity = await proxyService.runMetadataPrewarmSingleFlight(
     new Request("https://cache.test/asset-5"),
-    async () => ({ cached: true, bytes: 1 })
+    async () => ({ cached: true, bytes: 1 }),
   );
   assert.equal(rejectedForCapacity.skipped, true);
   const joined = proxyService.runMetadataPrewarmSingleFlight(
     new Request("https://cache.test/asset-0"),
-    async () => assert.fail("same final cache key must join the active task")
+    async () => assert.fail("same final cache key must join the active task"),
   );
 
   gate.resolve();
@@ -2109,49 +2348,66 @@ test("metadata prewarm single-flight has four slots and always releases failed e
   assert.equal(joinedResult.joined, true);
   assert.equal(tasks.size, 0);
 
-  await assert.rejects(proxyService.runMetadataPrewarmSingleFlight(
-    new Request("https://cache.test/failure"),
-    async () => { throw new Error("prewarm failed"); }
-  ), /prewarm failed/);
+  await assert.rejects(
+    proxyService.runMetadataPrewarmSingleFlight(
+      new Request("https://cache.test/failure"),
+      async () => {
+        throw new Error("prewarm failed");
+      },
+    ),
+    /prewarm failed/,
+  );
   assert.equal(tasks.size, 0);
 });
 
 test("metadata prewarm byte guards cancel declared and streaming overages", async () => {
   let declaredCancelled = false;
-  const declaredResponse = new Response(new ReadableStream({
-    cancel() { declaredCancelled = true; }
-  }), { headers: { "Content-Length": "9" } });
+  const declaredResponse = new Response(
+    new ReadableStream({
+      cancel() {
+        declaredCancelled = true;
+      },
+    }),
+    { headers: { "Content-Length": "9" } },
+  );
   assert.equal(proxyService.buildBudgetedPrewarmResponse(declaredResponse, 8), null);
   await Promise.resolve();
   assert.equal(declaredCancelled, true);
 
   let streamingCancelled = false;
-  const streamingResponse = new Response(new ReadableStream({
-    start(controller) {
-      controller.enqueue(new Uint8Array(5));
-      controller.enqueue(new Uint8Array(5));
-    },
-    cancel() { streamingCancelled = true; }
-  }));
+  const streamingResponse = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(5));
+        controller.enqueue(new Uint8Array(5));
+      },
+      cancel() {
+        streamingCancelled = true;
+      },
+    }),
+  );
   const bounded = proxyService.buildBudgetedPrewarmResponse(streamingResponse, 8);
   await assert.rejects(bounded.response.arrayBuffer(), /metadata_prewarm_budget_exceeded/);
   assert.equal(streamingCancelled, true);
   assert.equal(bounded.getBytes(), 5);
-  assert.equal(sanitizeRuntimeConfig({ prewarmPrefetchBytes: 64 * 1024 * 1024 }).prewarmPrefetchBytes, 8 * 1024 * 1024);
+  assert.equal(
+    sanitizeRuntimeConfig({ prewarmPrefetchBytes: 64 * 1024 * 1024 }).prewarmPrefetchBytes,
+    8 * 1024 * 1024,
+  );
 });
 
 test("metadata cache policy revisions change with TTL and asset kind", () => {
   const imageHour = buildWorkerMetadataCachePolicyRevision("/Items/1/Images/Primary", {
     imageCacheMaxAge: 3600,
-    prewarmCacheTtl: 120
+    prewarmCacheTtl: 120,
   });
   const imageDisabled = buildWorkerMetadataCachePolicyRevision("/Items/1/Images/Primary", {
     imageCacheMaxAge: 0,
-    prewarmCacheTtl: 120
+    prewarmCacheTtl: 120,
   });
   const manifest = buildWorkerMetadataCachePolicyRevision("/Videos/1/main.m3u8", {
     imageCacheMaxAge: 3600,
-    prewarmCacheTtl: 120
+    prewarmCacheTtl: 120,
   });
 
   assert.notEqual(imageHour, imageDisabled);
@@ -2163,19 +2419,37 @@ test("managed response idle timeouts cover manifests and segments only", () => {
   assert.equal(proxyService.resolveResponseStreamIdleTimeoutMs({ isSegment: true }), 15_000);
   assert.equal(proxyService.resolveResponseStreamIdleTimeoutMs({}), 0);
   const upstreamState = { response: new Response("body") };
-  assert.equal(proxyService.shouldManageProxyResponseBody({ requestMethod: "GET", requestTraits: { isManifest: true } }, upstreamState), true);
-  assert.equal(proxyService.shouldManageProxyResponseBody({ requestMethod: "GET", requestTraits: { isSegment: true } }, upstreamState), true);
-  assert.equal(proxyService.shouldManageProxyResponseBody({ requestMethod: "GET", requestTraits: {} }, upstreamState), false);
+  assert.equal(
+    proxyService.shouldManageProxyResponseBody(
+      { requestMethod: "GET", requestTraits: { isManifest: true } },
+      upstreamState,
+    ),
+    true,
+  );
+  assert.equal(
+    proxyService.shouldManageProxyResponseBody(
+      { requestMethod: "GET", requestTraits: { isSegment: true } },
+      upstreamState,
+    ),
+    true,
+  );
+  assert.equal(
+    proxyService.shouldManageProxyResponseBody(
+      { requestMethod: "GET", requestTraits: {} },
+      upstreamState,
+    ),
+    false,
+  );
 });
 
 test("metadata cache lookups preserve supported request conditions and bypass If-Range", () => {
   const cacheKey = new Request("https://worker-cache.test/item?identity=abc");
   const sourceRequest = new Request("https://worker.test/item", {
     headers: {
-      "Range": "bytes=10-19",
+      Range: "bytes=10-19",
       "If-None-Match": '"etag-v1"',
-      "If-Modified-Since": "Sun, 12 Jul 2026 00:00:00 GMT"
-    }
+      "If-Modified-Since": "Sun, 12 Jul 2026 00:00:00 GMT",
+    },
   });
   const lookupRequest = buildWorkerMetadataCacheLookupRequest(cacheKey, sourceRequest);
 
@@ -2184,14 +2458,20 @@ test("metadata cache lookups preserve supported request conditions and bypass If
   assert.equal(lookupRequest.headers.get("Range"), "bytes=10-19");
   assert.equal(lookupRequest.headers.get("If-None-Match"), '"etag-v1"');
   assert.equal(lookupRequest.headers.get("If-Modified-Since"), "Sun, 12 Jul 2026 00:00:00 GMT");
-  assert.equal(buildWorkerMetadataCacheLookupRequest(cacheKey, new Request("https://worker.test/item", {
-    headers: { "If-Range": '"etag-v1"', "Range": "bytes=10-19" }
-  })), null);
+  assert.equal(
+    buildWorkerMetadataCacheLookupRequest(
+      cacheKey,
+      new Request("https://worker.test/item", {
+        headers: { "If-Range": '"etag-v1"', Range: "bytes=10-19" },
+      }),
+    ),
+    null,
+  );
 });
 
 test("private metadata responses stay browser-private and upstream fetch bypasses shared cache", async () => {
   const privateRequest = new Request("https://worker.test/Items/1/Images/Primary", {
-    headers: { "X-Emby-Token": "secret-token" }
+    headers: { "X-Emby-Token": "secret-token" },
   });
   const publicRequest = new Request("https://worker.test/Items/1/Images/Primary");
   const requestTraits = {
@@ -2202,7 +2482,7 @@ test("private metadata responses stay browser-private and upstream fetch bypasse
     isMetadataCacheable: true,
     isBigStream: false,
     isSmartStrmMedia: false,
-    isSegment: false
+    isSegment: false,
   };
   const privateHeaders = proxyService.buildProxyResponseHeaders(
     new Response("image"),
@@ -2210,7 +2490,7 @@ test("private metadata responses stay browser-private and upstream fetch bypasse
     {},
     "*",
     requestTraits,
-    { imageCacheMaxAge: 3600 }
+    { imageCacheMaxAge: 3600 },
   );
   const publicHeaders = proxyService.buildProxyResponseHeaders(
     new Response("image"),
@@ -2218,23 +2498,28 @@ test("private metadata responses stay browser-private and upstream fetch bypasse
     {},
     "*",
     requestTraits,
-    { imageCacheMaxAge: 3600 }
+    { imageCacheMaxAge: 3600 },
   );
   assert.equal(privateHeaders.get("Cache-Control"), "private, max-age=3600");
   assert.equal(publicHeaders.get("Cache-Control"), "public, max-age=3600");
 
-  const buildFetchOptions = proxyService.createBuildFetchOptions({
-    request: privateRequest,
-    requestMethod: "GET",
-    requestTraits,
-    protocolFallback: true
-  }, {
-    newHeaders: new Headers(privateRequest.headers),
-    adminCustomHeaders: new Set(),
-    preparedBody: null,
-    preparedBodyMode: "none"
-  });
-  const fetchOptions = await buildFetchOptions(new URL("https://origin.test/Items/1/Images/Primary"));
+  const buildFetchOptions = proxyService.createBuildFetchOptions(
+    {
+      request: privateRequest,
+      requestMethod: "GET",
+      requestTraits,
+      protocolFallback: true,
+    },
+    {
+      newHeaders: new Headers(privateRequest.headers),
+      adminCustomHeaders: new Set(),
+      preparedBody: null,
+      preparedBodyMode: "none",
+    },
+  );
+  const fetchOptions = await buildFetchOptions(
+    new URL("https://origin.test/Items/1/Images/Primary"),
+  );
   assert.equal(fetchOptions.cache, "no-store");
   assert.equal(Object.hasOwn(fetchOptions, "cf"), false);
 });
@@ -2267,7 +2552,7 @@ test("single-flight deduplicates equal keys while distinct keys run independentl
       runningKeys.push("right");
       await Promise.resolve();
       return "right";
-    })
+    }),
   ]);
   assert.deepEqual(new Set(runningKeys), new Set(["left", "right"]));
   assert.deepEqual([left, right], ["left", "right"]);
@@ -2281,7 +2566,7 @@ test("single-flight rejection clears the key for a later retry", async () => {
       loadCount += 1;
       throw new Error("first attempt failed");
     }),
-    /first attempt failed/
+    /first attempt failed/,
   );
   assert.equal(isolateState.SingleFlightTasks.has("test:retry"), false);
 
@@ -2297,28 +2582,39 @@ test("single-flight rejection clears the key for a later retry", async () => {
 test("media auth normalization targets the documented Emby and Jellyfin schemes", () => {
   const jellyfinTokenOnly = proxyService.normalizeMediaAuthHeaders(
     new Headers({ "X-Emby-Token": "token-jellyfin", "X-Emby-Device-Id": "device-1" }),
-    "jellyfin"
+    "jellyfin",
   );
   assert.equal(jellyfinTokenOnly.get("Authorization"), 'MediaBrowser Token="token-jellyfin"');
-  assert.equal(jellyfinTokenOnly.get("X-Emby-Authorization"), 'MediaBrowser Token="token-jellyfin"');
+  assert.equal(
+    jellyfinTokenOnly.get("X-Emby-Authorization"),
+    'MediaBrowser Token="token-jellyfin"',
+  );
   assert.equal(jellyfinTokenOnly.has("X-MediaBrowser-Authorization"), false);
   assert.equal(jellyfinTokenOnly.get("X-Emby-Token"), "token-jellyfin");
 
   const jellyfinRewrite = proxyService.normalizeMediaAuthHeaders(
-    new Headers({ Authorization: 'Emby Client="c", Device="d", DeviceId="i", Version="1", Token="t"' }),
-    "jellyfin"
+    new Headers({
+      Authorization: 'Emby Client="c", Device="d", DeviceId="i", Version="1", Token="t"',
+    }),
+    "jellyfin",
   );
   assert.equal(
     jellyfinRewrite.get("Authorization"),
-    'MediaBrowser Client="c", Device="d", DeviceId="i", Version="1", Token="t"'
+    'MediaBrowser Client="c", Device="d", DeviceId="i", Version="1", Token="t"',
   );
   assert.equal(jellyfinRewrite.has("X-MediaBrowser-Authorization"), false);
 
-  const embyTokenOnly = proxyService.normalizeMediaAuthHeaders(new Headers({ "X-Emby-Token": "token-emby" }), "emby");
+  const embyTokenOnly = proxyService.normalizeMediaAuthHeaders(
+    new Headers({ "X-Emby-Token": "token-emby" }),
+    "emby",
+  );
   assert.equal(embyTokenOnly.get("Authorization"), 'Emby Token="token-emby"');
   assert.equal(embyTokenOnly.get("X-Emby-Authorization"), 'Emby Token="token-emby"');
 
-  const jellyfinBearer = proxyService.normalizeMediaAuthHeaders(new Headers({ Authorization: "Bearer bearer-token" }), "jellyfin");
+  const jellyfinBearer = proxyService.normalizeMediaAuthHeaders(
+    new Headers({ Authorization: "Bearer bearer-token" }),
+    "jellyfin",
+  );
   assert.equal(jellyfinBearer.get("Authorization"), 'MediaBrowser Token="bearer-token"');
 
   const autoTokenOnly = new Headers({ "X-Emby-Token": "token-auto" });
@@ -2334,19 +2630,27 @@ test("media auth normalization targets the documented Emby and Jellyfin schemes"
 
 test("direct media redirects append the Jellyfin ApiKey query name only for Jellyfin nodes", () => {
   const policy = { auth: { token: "redirect-token", deviceId: "redirect-device" } };
-  const jellyfinUrl = proxyService.appendMediaRedirectAuthToUrl(new URL("https://node.test/Videos/1/stream"), policy, "jellyfin");
+  const jellyfinUrl = proxyService.appendMediaRedirectAuthToUrl(
+    new URL("https://node.test/Videos/1/stream"),
+    policy,
+    "jellyfin",
+  );
   assert.equal(jellyfinUrl.searchParams.get("ApiKey"), "redirect-token");
   assert.equal(jellyfinUrl.searchParams.get("api_key"), null);
   assert.equal(jellyfinUrl.searchParams.get("DeviceId"), "redirect-device");
 
-  const embyUrl = proxyService.appendMediaRedirectAuthToUrl(new URL("https://node.test/Videos/1/stream"), policy, "emby");
+  const embyUrl = proxyService.appendMediaRedirectAuthToUrl(
+    new URL("https://node.test/Videos/1/stream"),
+    policy,
+    "emby",
+  );
   assert.equal(embyUrl.searchParams.get("api_key"), "redirect-token");
   assert.equal(embyUrl.searchParams.get("ApiKey"), null);
 
   const preAuthedUrl = proxyService.appendMediaRedirectAuthToUrl(
     new URL("https://node.test/Videos/1/stream?api_key=preset"),
     policy,
-    "jellyfin"
+    "jellyfin",
   );
   assert.equal(preAuthedUrl.searchParams.get("api_key"), "preset");
   assert.equal(preAuthedUrl.searchParams.get("ApiKey"), null);
@@ -2354,7 +2658,7 @@ test("direct media redirects append the Jellyfin ApiKey query name only for Jell
 
 test("proxy request state synthesizes Jellyfin authorization from token headers", async () => {
   const request = new Request("https://worker.test/Videos/1/stream", {
-    headers: { "X-Emby-Token": "transport-token", "X-Emby-Device-Id": "transport-device" }
+    headers: { "X-Emby-Token": "transport-token", "X-Emby-Device-Id": "transport-device" },
   });
   const transport = await proxyService.buildProxyRequestState(
     request,
@@ -2365,10 +2669,13 @@ test("proxy request state synthesizes Jellyfin authorization from token headers"
     {},
     false,
     [],
-    {}
+    {},
   );
   assert.equal(transport.newHeaders.get("Authorization"), 'MediaBrowser Token="transport-token"');
-  assert.equal(transport.newHeaders.get("X-Emby-Authorization"), 'MediaBrowser Token="transport-token"');
+  assert.equal(
+    transport.newHeaders.get("X-Emby-Authorization"),
+    'MediaBrowser Token="transport-token"',
+  );
   assert.equal(transport.newHeaders.has("X-MediaBrowser-Authorization"), false);
   assert.equal(transport.newHeaders.get("X-Emby-Token"), "transport-token");
 });
@@ -2376,267 +2683,426 @@ test("proxy request state synthesizes Jellyfin authorization from token headers"
 test("TMDB provider id search converts to a title and year request", async () => {
   isolateState.TmdbLookupCache.clear();
   const fetched = [];
-  await withWorkerGlobals({
-    fetch: async (url, init = {}) => {
-      fetched.push({ url: String(url), headers: new Headers(init.headers) });
-      return new Response(JSON.stringify({ title: "Blade Runner", release_date: "1982-06-25" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init = {}) => {
+        fetched.push({ url: String(url), headers: new Headers(init.headers) });
+        return new Response(JSON.stringify({ title: "Blade Runner", release_date: "1982-06-25" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/node/secret/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie&Recursive=true",
+      );
+      const converted = await convertTmdbRequestFromUrl(source, {
+        TMDB_API_READ_TOKEN: "read-token",
       });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/node/secret/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie&Recursive=true");
-    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
-    assert.ok(converted instanceof URL, "expected a converted URL");
-    assert.equal(converted.searchParams.has("AnyProviderIdEquals"), false);
-    assert.equal(converted.searchParams.get("SearchTerm"), "Blade Runner");
-    assert.equal(converted.searchParams.get("Years"), "1982");
-    assert.equal(converted.searchParams.get("IncludeItemTypes"), "Movie");
-    assert.equal(fetched.length, 1);
-    assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/78?language=zh-CN");
-    assert.equal(fetched[0].headers.get("Authorization"), "Bearer read-token");
-  });
+      assert.ok(converted instanceof URL, "expected a converted URL");
+      assert.equal(converted.searchParams.has("AnyProviderIdEquals"), false);
+      assert.equal(converted.searchParams.get("SearchTerm"), "Blade Runner");
+      assert.equal(converted.searchParams.get("Years"), "1982");
+      assert.equal(converted.searchParams.get("IncludeItemTypes"), "Movie");
+      assert.equal(fetched.length, 1);
+      assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/78?language=zh-CN");
+      assert.equal(fetched[0].headers.get("Authorization"), "Bearer read-token");
+    },
+  );
 });
 
 test("TMDB provider id search uses the api key and only converts provider URLs", async () => {
   isolateState.TmdbLookupCache.clear();
   const fetched = [];
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      fetched.push(String(url));
-      return new Response(JSON.stringify({ name: "Some Show", first_air_date: "2008-01-20" }), { status: 200 });
-    }
-  }, async () => {
-    const seriesUrl = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.1396&IncludeItemTypes=Series");
-    const converted = await convertTmdbRequestFromUrl(seriesUrl, { TMDB_API_KEY: "env-api-key" });
-    assert.equal(converted.searchParams.get("SearchTerm"), "Some Show");
-    assert.equal(converted.searchParams.get("Years"), "2008");
-    assert.equal(fetched[0], "https://api.themoviedb.org/3/tv/1396?language=zh-CN&api_key=env-api-key");
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        fetched.push(String(url));
+        return new Response(JSON.stringify({ name: "Some Show", first_air_date: "2008-01-20" }), {
+          status: 200,
+        });
+      },
+    },
+    async () => {
+      const seriesUrl = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.1396&IncludeItemTypes=Series",
+      );
+      const converted = await convertTmdbRequestFromUrl(seriesUrl, { TMDB_API_KEY: "env-api-key" });
+      assert.equal(converted.searchParams.get("SearchTerm"), "Some Show");
+      assert.equal(converted.searchParams.get("Years"), "2008");
+      assert.equal(
+        fetched[0],
+        "https://api.themoviedb.org/3/tv/1396?language=zh-CN&api_key=env-api-key",
+      );
 
-    const plainUrl = new URL("https://worker.test/Items?IncludeItemTypes=Movie");
-    assert.equal(await convertTmdbRequestFromUrl(plainUrl, { TMDB_API_READ_TOKEN: "read-token" }), null);
-  });
+      const plainUrl = new URL("https://worker.test/Items?IncludeItemTypes=Movie");
+      assert.equal(
+        await convertTmdbRequestFromUrl(plainUrl, { TMDB_API_READ_TOKEN: "read-token" }),
+        null,
+      );
+    },
+  );
   assert.equal(fetched.length, 1);
 });
 
 test("TMDB provider id search keeps the original URL when the lookup is rejected", async () => {
   isolateState.TmdbLookupCache.clear();
-  await withWorkerGlobals({
-    fetch: async () => new Response("blocked", { status: 429 })
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie");
-    assert.equal(await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }), null);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async () => new Response("blocked", { status: 429 }),
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie",
+      );
+      assert.equal(
+        await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }),
+        null,
+      );
+    },
+  );
 });
 
 test("TMDB provider id search does nothing without a configured credential", async () => {
   isolateState.TmdbLookupCache.clear();
   let fetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async () => {
-      fetchCount += 1;
-      return new Response("{}", { status: 200 });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie");
-    assert.equal(await convertTmdbRequestFromUrl(source, {}), null);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        fetchCount += 1;
+        return new Response("{}", { status: 200 });
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.78&IncludeItemTypes=Movie",
+      );
+      assert.equal(await convertTmdbRequestFromUrl(source, {}), null);
+    },
+  );
   assert.equal(fetchCount, 0);
 });
 
 test("TMDB provider id search memoizes a successful lookup", async () => {
   isolateState.TmdbLookupCache.clear();
   let fetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async () => {
-      fetchCount += 1;
-      return new Response(JSON.stringify({ title: "Cached Movie", release_date: "1999-01-01" }), { status: 200 });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.501&IncludeItemTypes=Movie");
-    const first = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
-    const second = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
-    assert.equal(first.searchParams.get("SearchTerm"), "Cached Movie");
-    assert.equal(first.searchParams.get("Years"), "1999");
-    assert.equal(second.searchParams.get("SearchTerm"), "Cached Movie");
-    assert.equal(fetchCount, 1);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        fetchCount += 1;
+        return new Response(JSON.stringify({ title: "Cached Movie", release_date: "1999-01-01" }), {
+          status: 200,
+        });
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.501&IncludeItemTypes=Movie",
+      );
+      const first = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
+      const second = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" });
+      assert.equal(first.searchParams.get("SearchTerm"), "Cached Movie");
+      assert.equal(first.searchParams.get("Years"), "1999");
+      assert.equal(second.searchParams.get("SearchTerm"), "Cached Movie");
+      assert.equal(fetchCount, 1);
+    },
+  );
 });
 
 test("TMDB provider id search prefers runtime config credentials over env", async () => {
   isolateState.TmdbLookupCache.clear();
   const fetched = [];
-  await withWorkerGlobals({
-    fetch: async (url, init = {}) => {
-      fetched.push({ url: String(url), headers: new Headers(init.headers) });
-      return new Response(JSON.stringify({ title: "Config Movie", release_date: "2001-02-03" }), { status: 200 });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.603&IncludeItemTypes=Movie");
-    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "env-token" }, { tmdbApiReadToken: "config-token" });
-    assert.equal(converted.searchParams.get("SearchTerm"), "Config Movie");
-    assert.equal(fetched.length, 1);
-    assert.equal(fetched[0].headers.get("Authorization"), "Bearer config-token");
-    assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/603?language=zh-CN");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init = {}) => {
+        fetched.push({ url: String(url), headers: new Headers(init.headers) });
+        return new Response(JSON.stringify({ title: "Config Movie", release_date: "2001-02-03" }), {
+          status: 200,
+        });
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.603&IncludeItemTypes=Movie",
+      );
+      const converted = await convertTmdbRequestFromUrl(
+        source,
+        { TMDB_API_READ_TOKEN: "env-token" },
+        { tmdbApiReadToken: "config-token" },
+      );
+      assert.equal(converted.searchParams.get("SearchTerm"), "Config Movie");
+      assert.equal(fetched.length, 1);
+      assert.equal(fetched[0].headers.get("Authorization"), "Bearer config-token");
+      assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/603?language=zh-CN");
+    },
+  );
 });
 
 test("TMDB provider id search treats config credentials as a group over env", async () => {
   isolateState.TmdbLookupCache.clear();
   const fetched = [];
-  await withWorkerGlobals({
-    fetch: async (url, init = {}) => {
-      fetched.push({ url: String(url), headers: new Headers(init.headers) });
-      return new Response(JSON.stringify({ title: "Group Movie", release_date: "1990-05-06" }), { status: 200 });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.701&IncludeItemTypes=Movie");
-    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "env-token" }, { tmdbApiV3Key: "config-v3-key" });
-    assert.equal(converted.searchParams.get("SearchTerm"), "Group Movie");
-    assert.equal(fetched.length, 1);
-    assert.equal(fetched[0].url, "https://api.themoviedb.org/3/movie/701?language=zh-CN&api_key=config-v3-key");
-    assert.equal(fetched[0].headers.get("Authorization"), null);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init = {}) => {
+        fetched.push({ url: String(url), headers: new Headers(init.headers) });
+        return new Response(JSON.stringify({ title: "Group Movie", release_date: "1990-05-06" }), {
+          status: 200,
+        });
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.701&IncludeItemTypes=Movie",
+      );
+      const converted = await convertTmdbRequestFromUrl(
+        source,
+        { TMDB_API_READ_TOKEN: "env-token" },
+        { tmdbApiV3Key: "config-v3-key" },
+      );
+      assert.equal(converted.searchParams.get("SearchTerm"), "Group Movie");
+      assert.equal(fetched.length, 1);
+      assert.equal(
+        fetched[0].url,
+        "https://api.themoviedb.org/3/movie/701?language=zh-CN&api_key=config-v3-key",
+      );
+      assert.equal(fetched[0].headers.get("Authorization"), null);
+    },
+  );
 });
 
 test("TMDB provider id search falls back to env credentials when config is empty", async () => {
   isolateState.TmdbLookupCache.clear();
   const fetched = [];
-  await withWorkerGlobals({
-    fetch: async (url, init = {}) => {
-      fetched.push({ url: String(url), headers: new Headers(init.headers) });
-      return new Response(JSON.stringify({ title: "Env Movie", release_date: "1991-07-08" }), { status: 200 });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.702&IncludeItemTypes=Movie");
-    const converted = await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "env-token" }, { tmdbApiReadToken: "", tmdbApiV3Key: "" });
-    assert.equal(converted.searchParams.get("SearchTerm"), "Env Movie");
-    assert.equal(fetched[0].headers.get("Authorization"), "Bearer env-token");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init = {}) => {
+        fetched.push({ url: String(url), headers: new Headers(init.headers) });
+        return new Response(JSON.stringify({ title: "Env Movie", release_date: "1991-07-08" }), {
+          status: 200,
+        });
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.702&IncludeItemTypes=Movie",
+      );
+      const converted = await convertTmdbRequestFromUrl(
+        source,
+        { TMDB_API_READ_TOKEN: "env-token" },
+        { tmdbApiReadToken: "", tmdbApiV3Key: "" },
+      );
+      assert.equal(converted.searchParams.get("SearchTerm"), "Env Movie");
+      assert.equal(fetched[0].headers.get("Authorization"), "Bearer env-token");
+    },
+  );
 });
 
 test("TMDB provider id search short-caches a rejected lookup", async () => {
   isolateState.TmdbLookupCache.clear();
   let fetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async () => {
-      fetchCount += 1;
-      return new Response("gone", { status: 404 });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.703&IncludeItemTypes=Movie");
-    assert.equal(await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }), null);
-    assert.equal(await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }), null);
-    assert.equal(fetchCount, 1);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        fetchCount += 1;
+        return new Response("gone", { status: 404 });
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.703&IncludeItemTypes=Movie",
+      );
+      assert.equal(
+        await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }),
+        null,
+      );
+      assert.equal(
+        await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token" }),
+        null,
+      );
+      assert.equal(fetchCount, 1);
+    },
+  );
 });
 
 test("TMDB provider id search honors a configured metadata language", async () => {
   isolateState.TmdbLookupCache.clear();
   const fetched = [];
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      fetched.push(String(url));
-      return new Response(JSON.stringify({ title: "English Movie", release_date: "1988-01-01" }), { status: 200 });
-    }
-  }, async () => {
-    const source = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.801&IncludeItemTypes=Movie");
-    await convertTmdbRequestFromUrl(source, { TMDB_API_READ_TOKEN: "read-token", TMDB_LANGUAGE: "fr-FR" }, { tmdbLanguage: "en-US" });
-    assert.equal(fetched[0], "https://api.themoviedb.org/3/movie/801?language=en-US");
-    // the language is part of the cache key, so switching language triggers a fresh lookup
-    const source2 = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.801&IncludeItemTypes=Movie");
-    await convertTmdbRequestFromUrl(source2, { TMDB_API_READ_TOKEN: "read-token", TMDB_LANGUAGE: "fr-FR" });
-    assert.equal(fetched[1], "https://api.themoviedb.org/3/movie/801?language=fr-FR");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        fetched.push(String(url));
+        return new Response(
+          JSON.stringify({ title: "English Movie", release_date: "1988-01-01" }),
+          { status: 200 },
+        );
+      },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.801&IncludeItemTypes=Movie",
+      );
+      await convertTmdbRequestFromUrl(
+        source,
+        { TMDB_API_READ_TOKEN: "read-token", TMDB_LANGUAGE: "fr-FR" },
+        { tmdbLanguage: "en-US" },
+      );
+      assert.equal(fetched[0], "https://api.themoviedb.org/3/movie/801?language=en-US");
+      // the language is part of the cache key, so switching language triggers a fresh lookup
+      const source2 = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.801&IncludeItemTypes=Movie",
+      );
+      await convertTmdbRequestFromUrl(source2, {
+        TMDB_API_READ_TOKEN: "read-token",
+        TMDB_LANGUAGE: "fr-FR",
+      });
+      assert.equal(fetched[1], "https://api.themoviedb.org/3/movie/801?language=fr-FR");
+    },
+  );
 });
 
 test("TMDB provider id search skips episode and season lookups", async () => {
   isolateState.TmdbLookupCache.clear();
   let fetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async () => {
-      fetchCount += 1;
-      return new Response("{}", { status: 200 });
-    }
-  }, async () => {
-    const episodeUrl = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.901&IncludeItemTypes=Episode");
-    const seasonUrl = new URL("https://worker.test/Items?AnyProviderIdEquals=tmdb.902&IncludeItemTypes=Season");
-    assert.equal(await convertTmdbRequestFromUrl(episodeUrl, { TMDB_API_READ_TOKEN: "read-token" }), null);
-    assert.equal(await convertTmdbRequestFromUrl(seasonUrl, { TMDB_API_READ_TOKEN: "read-token" }), null);
-    assert.equal(fetchCount, 0);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        fetchCount += 1;
+        return new Response("{}", { status: 200 });
+      },
+    },
+    async () => {
+      const episodeUrl = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.901&IncludeItemTypes=Episode",
+      );
+      const seasonUrl = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.902&IncludeItemTypes=Season",
+      );
+      assert.equal(
+        await convertTmdbRequestFromUrl(episodeUrl, { TMDB_API_READ_TOKEN: "read-token" }),
+        null,
+      );
+      assert.equal(
+        await convertTmdbRequestFromUrl(seasonUrl, { TMDB_API_READ_TOKEN: "read-token" }),
+        null,
+      );
+      assert.equal(fetchCount, 0);
+    },
+  );
 });
 
 test("node normalization keeps the TMDB aggregation flag as a strict boolean", () => {
-  const enabled = kernel.normalizeNode("alpha", { target: "https://origin.test", tmdbAggregationEnabled: true }).data;
+  const enabled = kernel.normalizeNode("alpha", {
+    target: "https://origin.test",
+    tmdbAggregationEnabled: true,
+  }).data;
   assert.equal(enabled.tmdbAggregationEnabled, true);
-  const coerced = kernel.normalizeNode("alpha", { target: "https://origin.test", tmdbAggregationEnabled: "yes" }).data;
+  const coerced = kernel.normalizeNode("alpha", {
+    target: "https://origin.test",
+    tmdbAggregationEnabled: "yes",
+  }).data;
   assert.equal(coerced.tmdbAggregationEnabled, false);
-  const summary = kernel.normalizeNodeSummaryPayload("alpha", { target: "https://origin.test", tmdbAggregationEnabled: true });
+  const summary = kernel.normalizeNodeSummaryPayload("alpha", {
+    target: "https://origin.test",
+    tmdbAggregationEnabled: true,
+  });
   assert.equal(summary.tmdbAggregationEnabled, true);
 });
 
 test("blocked cross-origin image redirects fall back to a client-visible redirect", async () => {
   const fetched = [];
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      fetched.push(String(url));
-      if (fetched.length === 1) {
-        return new Response(null, { status: 302, headers: { Location: "https://cdn.other.test/images/cover.jpg" } });
-      }
-      return new Response("blocked", { status: 403 });
-    }
-  }, async () => {
-    const request = new Request("https://worker.test/node/secret/Items/1/Images/Primary");
-    const response = await proxyService.handle(
-      request,
-      { target: "https://origin.test" },
-      "/Items/1/Images/Primary",
-      "node",
-      "secret",
-      {},
-      { waitUntil() {} },
-      { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } }
-    );
-    assert.equal(response.status, 302);
-    assert.equal(response.headers.get("Location"), "https://cdn.other.test/images/cover.jpg");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        fetched.push(String(url));
+        if (fetched.length === 1) {
+          return new Response(null, {
+            status: 302,
+            headers: { Location: "https://cdn.other.test/images/cover.jpg" },
+          });
+        }
+        return new Response("blocked", { status: 403 });
+      },
+    },
+    async () => {
+      const request = new Request("https://worker.test/node/secret/Items/1/Images/Primary");
+      const response = await proxyService.handle(
+        request,
+        { target: "https://origin.test" },
+        "/Items/1/Images/Primary",
+        "node",
+        "secret",
+        {},
+        { waitUntil() {} },
+        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
+      );
+      assert.equal(response.status, 302);
+      assert.equal(response.headers.get("Location"), "https://cdn.other.test/images/cover.jpg");
+    },
+  );
   assert.equal(fetched[0], "https://origin.test/Items/1/Images/Primary");
   assert.equal(fetched[1], "https://cdn.other.test/images/cover.jpg");
 });
 
 test("upstream 403 reaches the client instead of a speculative fallback status", async () => {
   const apiCalls = [];
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      apiCalls.push(String(url));
-      return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
-    }
-  }, async () => {
-    const request = new Request("https://worker.test/node/secret/Items/1");
-    const response = await proxyService.handle(request, { target: "https://origin.test" }, "/Items/1", "node", "secret", {}, { waitUntil() {} }, { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } });
-    assert.equal(response.status, 403);
-    assert.equal(response.headers.get("X-Proxy-Mime-Guard"), null);
-    assert.equal(await response.text(), JSON.stringify({ error: "Forbidden" }));
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        apiCalls.push(String(url));
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    },
+    async () => {
+      const request = new Request("https://worker.test/node/secret/Items/1");
+      const response = await proxyService.handle(
+        request,
+        { target: "https://origin.test" },
+        "/Items/1",
+        "node",
+        "secret",
+        {},
+        { waitUntil() {} },
+        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
+      );
+      assert.equal(response.status, 403);
+      assert.equal(response.headers.get("X-Proxy-Mime-Guard"), null);
+      assert.equal(await response.text(), JSON.stringify({ error: "Forbidden" }));
+    },
+  );
   assert.deepEqual(apiCalls, ["https://origin.test/Items/1"]);
 
   const mediaCalls = [];
-  await withWorkerGlobals({
-    fetch: async (url, init) => {
-      mediaCalls.push(`${String(url)} ${String(init?.method || "GET")}`);
-      if (mediaCalls.length === 1) return new Response("forbidden", { status: 403 });
-      return new Response("unavailable", { status: 503 });
-    }
-  }, async () => {
-    const request = new Request("https://worker.test/node/secret/Videos/1/stream");
-    const response = await proxyService.handle(request, { target: "https://origin.test" }, "/Videos/1/stream", "node", "secret", {}, { waitUntil() {} }, { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } });
-    assert.equal(response.status, 403);
-    assert.equal(await response.text(), "forbidden");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init) => {
+        mediaCalls.push(`${String(url)} ${String(init?.method || "GET")}`);
+        if (mediaCalls.length === 1) return new Response("forbidden", { status: 403 });
+        return new Response("unavailable", { status: 503 });
+      },
+    },
+    async () => {
+      const request = new Request("https://worker.test/node/secret/Videos/1/stream");
+      const response = await proxyService.handle(
+        request,
+        { target: "https://origin.test" },
+        "/Videos/1/stream",
+        "node",
+        "secret",
+        {},
+        { waitUntil() {} },
+        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
+      );
+      assert.equal(response.status, 403);
+      assert.equal(await response.text(), "forbidden");
+    },
+  );
   assert.deepEqual(mediaCalls, [
     "https://origin.test/Videos/1/stream GET",
-    "https://origin.test/Videos/1/stream GET"
+    "https://origin.test/Videos/1/stream GET",
   ]);
 });
 
@@ -2645,14 +3111,19 @@ test("API MIME guard preserves an upstream HTML error status", async () => {
     response: new Response("<!doctype html><html><body>Access denied</body></html>", {
       status: 403,
       statusText: "Forbidden",
-      headers: { "Content-Type": "text/html; charset=utf-8" }
-    })
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    }),
   };
-  const result = await proxyService.guardApiResponseMime({
-    request: new Request("https://worker.test/alpha/Users", { headers: { Accept: "application/json" } }),
-    requestMethod: "GET",
-    requestTraits: { isApiRequest: true }
-  }, upstreamState);
+  const result = await proxyService.guardApiResponseMime(
+    {
+      request: new Request("https://worker.test/alpha/Users", {
+        headers: { Accept: "application/json" },
+      }),
+      requestMethod: "GET",
+      requestTraits: { isApiRequest: true },
+    },
+    upstreamState,
+  );
 
   assert.equal(result.response.status, 403);
   assert.equal(result.response.statusText, "Forbidden");
@@ -2661,58 +3132,118 @@ test("API MIME guard preserves an upstream HTML error status", async () => {
     error: "Forbidden",
     code: 403,
     message: "Upstream API returned an HTML document instead of API data.",
-    details: { upstreamStatus: 403, contentType: "text/html" }
+    details: { upstreamStatus: 403, contentType: "text/html" },
   });
 
-  const successHtml = await proxyService.guardApiResponseMime({
-    request: new Request("https://worker.test/alpha/Users", { headers: { Accept: "application/json" } }),
-    requestMethod: "GET",
-    requestTraits: { isApiRequest: true }
-  }, {
-    response: new Response("<!doctype html><html><body>Frontend</body></html>", {
-      status: 200,
-      headers: { "Content-Type": "text/html" }
-    })
-  });
+  const successHtml = await proxyService.guardApiResponseMime(
+    {
+      request: new Request("https://worker.test/alpha/Users", {
+        headers: { Accept: "application/json" },
+      }),
+      requestMethod: "GET",
+      requestTraits: { isApiRequest: true },
+    },
+    {
+      response: new Response("<!doctype html><html><body>Frontend</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    },
+  );
   assert.equal(successHtml.response.status, 502);
   assert.equal(successHtml.response.statusText, "Bad Gateway");
 });
 
+test("failover 403 is returned directly without a protocol fallback retry", async () => {
+  const primaryTarget = createTargetRecord("https://origin-a.test");
+  const failoverTarget = createTargetRecord("https://origin-b.test");
+  const originalPerformUpstreamFetch = proxyService.performUpstreamFetch;
+  const originalFailoverWait = proxyService.maybeRunForegroundFailoverWait;
+  let upstreamFetches = 0;
+  proxyService.performUpstreamFetch = async (targetRecord) => {
+    upstreamFetches += 1;
+    return {
+      response: new Response("unavailable", { status: 503 }),
+      finalUrl: new URL("https://origin.test/Videos/1/stream"),
+      targetRecord,
+      releaseFetchController() {},
+    };
+  };
+  proxyService.maybeRunForegroundFailoverWait = async () => ({
+    upstream: {
+      response: new Response("forbidden-by-failover", { status: 403 }),
+      finalUrl: new URL("https://origin-b.test/Videos/1/stream"),
+      targetRecord: failoverTarget,
+      releaseFetchController() {},
+    },
+  });
+  try {
+    const result = await proxyService.fetchUpstreamWithRetryLoop({
+      retryTargetRecords: [primaryTarget, failoverTarget],
+      proxyPath: "/Videos/1/stream",
+      requestUrl: new URL("https://worker.test/node/secret/Videos/1/stream"),
+      buildFetchOptions: {},
+      maxExtraAttempts: 1,
+      isRetry: false,
+      allowAutomaticRetry: true,
+      retryableStatuses: new Set([500, 502, 503, 504]),
+      protocolFallback: true,
+      preparedBodyMode: null,
+      execution: {
+        requestMethod: "GET",
+        requestTraits: { canStripAuthOnProtocolFallback: true },
+        failoverContext: null,
+        failoverForegroundWaitUsed: false,
+      },
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.protocolFallbackRetry, false);
+    assert.equal(await result.response.text(), "forbidden-by-failover");
+    assert.equal(upstreamFetches, 1, "failover must not trigger a protocol fallback retry");
+  } finally {
+    proxyService.performUpstreamFetch = originalPerformUpstreamFetch;
+    proxyService.maybeRunForegroundFailoverWait = originalFailoverWait;
+  }
+});
+
 test("runtime route context normalizes hostnames once and defers CORS headers", async () => {
   const request = new Request("https://Node.Media.Example.COM./Videos/1/stream", {
-    headers: { Origin: "https://client.test" }
+    headers: { Origin: "https://client.test" },
   });
   const NativeHeaders = Headers;
   let headersConstructionCount = 0;
 
-  await withWorkerGlobals({
-    Headers: class CountingHeaders extends NativeHeaders {
-      constructor(init) {
-        super(init);
-        headersConstructionCount += 1;
-      }
-    }
-  }, async () => {
-    const routeContext = routeTesting.buildFetchRouteContext(request, {
-      HOST: "Media.Example.COM.",
-      LEGACY_HOST: "Legacy.Example.COM.",
-      ADMIN_PASS: "test-password",
-      JWT_SECRET: "test-secret"
-    });
+  await withWorkerGlobals(
+    {
+      Headers: class CountingHeaders extends NativeHeaders {
+        constructor(init) {
+          super(init);
+          headersConstructionCount += 1;
+        }
+      },
+    },
+    async () => {
+      const routeContext = routeTesting.buildFetchRouteContext(request, {
+        HOST: "Media.Example.COM.",
+        LEGACY_HOST: "Legacy.Example.COM.",
+        ADMIN_PASS: "test-password",
+        JWT_SECRET: "test-secret",
+      });
 
-    assert.equal(routeContext.requestHost, "node.media.example.com");
-    assert.equal(routeContext.configuredHost, "media.example.com");
-    assert.equal(routeContext.configuredLegacyHost, "legacy.example.com");
-    assert.equal(Object.hasOwn(routeContext, "requestHostLower"), false);
-    assert.equal(Object.hasOwn(routeContext, "dynamicCors"), false);
-    assert.equal(headersConstructionCount, 0);
+      assert.equal(routeContext.requestHost, "node.media.example.com");
+      assert.equal(routeContext.configuredHost, "media.example.com");
+      assert.equal(routeContext.configuredLegacyHost, "legacy.example.com");
+      assert.equal(Object.hasOwn(routeContext, "requestHostLower"), false);
+      assert.equal(Object.hasOwn(routeContext, "dynamicCors"), false);
+      assert.equal(headersConstructionCount, 0);
 
-    const response = routeTesting.buildRouteCorsResponse(request, {}, "Not Found", 404);
-    assert.equal(response.status, 404);
-    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://client.test");
-    assert.equal(response.headers.get("Vary"), "Origin");
-    assert.equal(headersConstructionCount, 1);
-  });
+      const response = routeTesting.buildRouteCorsResponse(request, {}, "Not Found", 404);
+      assert.equal(response.status, 404);
+      assert.equal(response.headers.get("Access-Control-Allow-Origin"), "https://client.test");
+      assert.equal(response.headers.get("Vary"), "Origin");
+      assert.equal(headersConstructionCount, 1);
+    },
+  );
 });
 
 test("proxy access rules reuse one parsed profile per runtime config object", () => {
@@ -2720,7 +3251,7 @@ test("proxy access rules reuse one parsed profile per runtime config object", ()
     corsOrigins: " https://client-a.test, https://client-b.test,https://client-a.test ",
     ipBlacklist: "198.51.100.1, 198.51.100.2",
     geoAllowlist: "us, ca",
-    geoBlocklist: "kp"
+    geoBlocklist: "kp",
   };
   const firstProfile = buildProxyAccessRuleProfile(runtimeConfig);
   const secondProfile = buildProxyAccessRuleProfile(runtimeConfig);
@@ -2728,12 +3259,18 @@ test("proxy access rules reuse one parsed profile per runtime config object", ()
   assert.equal(secondProfile, firstProfile);
   assert.deepEqual(firstProfile.corsOrigins, ["https://client-a.test", "https://client-b.test"]);
   assert.equal(
-    proxyService.resolveCorsOrigin(runtimeConfig, new Request("https://worker.test", {
-      headers: { Origin: "https://client-b.test" }
-    })),
-    "https://client-b.test"
+    proxyService.resolveCorsOrigin(
+      runtimeConfig,
+      new Request("https://worker.test", {
+        headers: { Origin: "https://client-b.test" },
+      }),
+    ),
+    "https://client-b.test",
   );
-  assert.equal(proxyService.evaluateFirewall(runtimeConfig, "198.51.100.1", "US", "*")?.status, 403);
+  assert.equal(
+    proxyService.evaluateFirewall(runtimeConfig, "198.51.100.1", "US", "*")?.status,
+    403,
+  );
   assert.equal(proxyService.evaluateFirewall(runtimeConfig, "203.0.113.1", "US", "*"), null);
   assert.equal(proxyService.evaluateFirewall(runtimeConfig, "203.0.113.1", "FR", "*")?.status, 403);
 
@@ -2749,19 +3286,27 @@ test("playback-critical route detection preserves encoded and link-variant paths
     ["node", "__proxy-a", "Videos", "1", "stream.m3u8"],
     ["node", "__PROXY-B", "Items", "1", "download"],
     ["node", "Videos", "1", "stream%2Em3u8"],
-    ["legacy", "node", "Videos", "1", "stream"]
+    ["legacy", "node", "Videos", "1", "stream"],
   ];
   const nonPlaybackRoutes = [
     ["node", "webhooks", "events"],
     ["node", "Items", "1"],
-    ["node", "__proxy-a", "api", "system", "info"]
+    ["node", "__proxy-a", "api", "system", "info"],
   ];
 
   for (const segments of playbackRoutes) {
-    assert.equal(routeTesting.isPlaybackCriticalRouteContext({ segments }), true, segments.join("/"));
+    assert.equal(
+      routeTesting.isPlaybackCriticalRouteContext({ segments }),
+      true,
+      segments.join("/"),
+    );
   }
   for (const segments of nonPlaybackRoutes) {
-    assert.equal(routeTesting.isPlaybackCriticalRouteContext({ segments }), false, segments.join("/"));
+    assert.equal(
+      routeTesting.isPlaybackCriticalRouteContext({ segments }),
+      false,
+      segments.join("/"),
+    );
   }
 });
 
@@ -2780,7 +3325,7 @@ test("Emby Web proxy boundary rejects only the exact web subtree", async () => {
     "/web%25252Findex.html",
     "/foo/%2e%2e/web/index.html",
     "/web%2Findex%ZZ.html",
-    "/%77eb/%ZZ/app.js"
+    "/%77eb/%ZZ/app.js",
   ];
   const nonWebPaths = [
     "/websocket",
@@ -2791,197 +3336,233 @@ test("Emby Web proxy boundary rejects only the exact web subtree", async () => {
     "/webby",
     "/api/web",
     "/Items",
-    "/Videos/1/stream"
+    "/Videos/1/stream",
   ];
   for (const proxyPath of webPaths) assert.equal(isEmbyWebProxyPath(proxyPath), true, proxyPath);
-  for (const proxyPath of nonWebPaths) assert.equal(isEmbyWebProxyPath(proxyPath), false, proxyPath);
+  for (const proxyPath of nonWebPaths)
+    assert.equal(isEmbyWebProxyPath(proxyPath), false, proxyPath);
 
   let upstreamFetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async () => {
-      upstreamFetchCount += 1;
-      return new Response("unexpected upstream response");
-    }
-  }, async () => {
-    for (const proxyPath of webPaths) {
-      const request = new Request("https://worker.test/node/secret?backup=1", {
-        headers: {
-          Cookie: "emby_web_bypass=1",
-          Origin: "https://client.test"
-        }
-      });
-      const response = await proxyService.handle(
-        request,
-        null,
-        proxyPath,
-        "node",
-        "secret",
-        {},
-        null,
-        { runtimeConfig: { rateLimitRpm: 0 } }
-      );
-      assert.equal(response.status, 404, proxyPath);
-      assert.equal(response.headers.get("Cache-Control"), "no-store, max-age=0");
-      assert.equal(response.headers.get("Location"), null);
-      assert.equal(response.headers.get("Set-Cookie"), null);
-      assert.equal(response.headers.get("Vary"), "Origin");
-      assert.equal(await response.text(), "Not Found");
-    }
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        upstreamFetchCount += 1;
+        return new Response("unexpected upstream response");
+      },
+    },
+    async () => {
+      for (const proxyPath of webPaths) {
+        const request = new Request("https://worker.test/node/secret?backup=1", {
+          headers: {
+            Cookie: "emby_web_bypass=1",
+            Origin: "https://client.test",
+          },
+        });
+        const response = await proxyService.handle(
+          request,
+          null,
+          proxyPath,
+          "node",
+          "secret",
+          {},
+          null,
+          { runtimeConfig: { rateLimitRpm: 0 } },
+        );
+        assert.equal(response.status, 404, proxyPath);
+        assert.equal(response.headers.get("Cache-Control"), "no-store, max-age=0");
+        assert.equal(response.headers.get("Location"), null);
+        assert.equal(response.headers.get("Set-Cookie"), null);
+        assert.equal(response.headers.get("Vary"), "Origin");
+        assert.equal(await response.text(), "Not Found");
+      }
 
-    for (const method of ["HEAD", "OPTIONS", "POST"]) {
-      const request = new Request("https://worker.test/node/secret?backup=1", {
-        method,
-        headers: { Cookie: "emby_web_bypass=1" }
-      });
-      const response = await proxyService.handle(request, null, "/web", "node", "secret", {}, null, {
-        runtimeConfig: { rateLimitRpm: 0 }
-      });
-      assert.equal(response.status, 404, method);
-      assert.equal(await response.text(), method === "HEAD" ? "" : "Not Found");
-    }
-  });
+      for (const method of ["HEAD", "OPTIONS", "POST"]) {
+        const request = new Request("https://worker.test/node/secret?backup=1", {
+          method,
+          headers: { Cookie: "emby_web_bypass=1" },
+        });
+        const response = await proxyService.handle(
+          request,
+          null,
+          "/web",
+          "node",
+          "secret",
+          {},
+          null,
+          {
+            runtimeConfig: { rateLimitRpm: 0 },
+          },
+        );
+        assert.equal(response.status, 404, method);
+        assert.equal(await response.text(), method === "HEAD" ? "" : "Not Found");
+      }
+    },
+  );
   assert.equal(upstreamFetchCount, 0);
 
-  const encodedWebRelayTarget = Buffer.from("https://origin.test/web/index.html", "utf8").toString("base64url");
+  const encodedWebRelayTarget = Buffer.from("https://origin.test/web/index.html", "utf8").toString(
+    "base64url",
+  );
   let relayFetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async () => {
-      relayFetchCount += 1;
-      return new Response("unexpected relay response");
-    }
-  }, async () => {
-    for (const relayVisiblePath of ["/web/index.html", "/Items/1"]) {
-      const proxyPath = `/__playback-relay${relayVisiblePath}`;
-      const request = new Request(
-        `https://worker.test/node/secret${proxyPath}?__pb_target=${encodeURIComponent(encodedWebRelayTarget)}`
-      );
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        relayFetchCount += 1;
+        return new Response("unexpected relay response");
+      },
+    },
+    async () => {
+      for (const relayVisiblePath of ["/web/index.html", "/Items/1"]) {
+        const proxyPath = `/__playback-relay${relayVisiblePath}`;
+        const request = new Request(
+          `https://worker.test/node/secret${proxyPath}?__pb_target=${encodeURIComponent(encodedWebRelayTarget)}`,
+        );
+        const response = await proxyService.handle(
+          request,
+          { target: "https://origin.test" },
+          proxyPath,
+          "node",
+          "secret",
+          {},
+          { waitUntil() {} },
+          { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
+        );
+        assert.equal(response.status, 404, relayVisiblePath);
+        assert.equal(await response.text(), "Not Found");
+      }
+    },
+  );
+  assert.equal(relayFetchCount, 0);
+
+  let redirectFetchCount = 0;
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        redirectFetchCount += 1;
+        assert.equal(
+          new URL(url).pathname,
+          redirectFetchCount === 1 ? "/emby/" : "/web/index.html",
+        );
+        if (redirectFetchCount === 1)
+          return new Response(null, { status: 302, headers: { Location: "/web/index.html" } });
+        return new Response("unexpected web response");
+      },
+    },
+    async () => {
+      const request = new Request("https://worker.test/node/secret/");
       const response = await proxyService.handle(
         request,
-        { target: "https://origin.test" },
-        proxyPath,
+        { target: "https://origin.test/emby" },
+        "/",
         "node",
         "secret",
         {},
         { waitUntil() {} },
-        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } }
+        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
       );
-      assert.equal(response.status, 404, relayVisiblePath);
+      assert.equal(response.status, 404);
+      assert.match(response.headers.get("Cache-Control") || "", /^no-store/);
       assert.equal(await response.text(), "Not Found");
-    }
-  });
-  assert.equal(relayFetchCount, 0);
-
-  let redirectFetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      redirectFetchCount += 1;
-      assert.equal(new URL(url).pathname, redirectFetchCount === 1 ? "/emby/" : "/web/index.html");
-      if (redirectFetchCount === 1) return new Response(null, { status: 302, headers: { Location: "/web/index.html" } });
-      return new Response("unexpected web response");
-    }
-  }, async () => {
-    const request = new Request("https://worker.test/node/secret/");
-    const response = await proxyService.handle(
-      request,
-      { target: "https://origin.test/emby" },
-      "/",
-      "node",
-      "secret",
-      {},
-      { waitUntil() {} },
-      { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } }
-    );
-    assert.equal(response.status, 404);
-    assert.match(response.headers.get("Cache-Control") || "", /^no-store/);
-    assert.equal(await response.text(), "Not Found");
-  });
+    },
+  );
   assert.equal(redirectFetchCount, 1);
 
   let playbackFallbackFetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      playbackFallbackFetchCount += 1;
-      assert.equal(new URL(url).pathname, "/Videos/1/stream");
-      return new Response(null, { status: 302, headers: { Location: "/web/index.html" } });
-    }
-  }, async () => {
-    const request = new Request("https://worker.test/node/secret/Videos/1/stream?__pb_abs=1");
-    const response = await proxyService.handle(
-      request,
-      { target: "https://origin.test" },
-      "/Videos/1/stream",
-      "node",
-      "secret",
-      {},
-      { waitUntil() {} },
-      { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } }
-    );
-    assert.equal(response.status, 404);
-    assert.equal(response.headers.get("Location"), null);
-    assert.equal(await response.text(), "Not Found");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        playbackFallbackFetchCount += 1;
+        assert.equal(new URL(url).pathname, "/Videos/1/stream");
+        return new Response(null, { status: 302, headers: { Location: "/web/index.html" } });
+      },
+    },
+    async () => {
+      const request = new Request("https://worker.test/node/secret/Videos/1/stream?__pb_abs=1");
+      const response = await proxyService.handle(
+        request,
+        { target: "https://origin.test" },
+        "/Videos/1/stream",
+        "node",
+        "secret",
+        {},
+        { waitUntil() {} },
+        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
+      );
+      assert.equal(response.status, 404);
+      assert.equal(response.headers.get("Location"), null);
+      assert.equal(await response.text(), "Not Found");
+    },
+  );
   assert.equal(playbackFallbackFetchCount, 1);
 
   let rangeProbeFetchCount = 0;
   let rangeProbeBodyCancelCount = 0;
-  await withWorkerGlobals({
-    fetch: async (url, init = {}) => {
-      rangeProbeFetchCount += 1;
-      assert.equal(new URL(url).pathname, "/Videos/1/stream");
-      assert.equal(init.method, "HEAD");
-      const body = new ReadableStream({
-        cancel() { rangeProbeBodyCancelCount += 1; }
+  await withWorkerGlobals(
+    {
+      fetch: async (url, init = {}) => {
+        rangeProbeFetchCount += 1;
+        assert.equal(new URL(url).pathname, "/Videos/1/stream");
+        assert.equal(init.method, "HEAD");
+        const body = new ReadableStream({
+          cancel() {
+            rangeProbeBodyCancelCount += 1;
+          },
+        });
+        return new Response(body, { status: 302, headers: { Location: "/web/index.html" } });
+      },
+    },
+    async () => {
+      const request = new Request("https://worker.test/node/secret/Videos/1/stream", {
+        headers: { Range: "bytes=0-1023" },
       });
-      return new Response(body, { status: 302, headers: { Location: "/web/index.html" } });
-    }
-  }, async () => {
-    const request = new Request("https://worker.test/node/secret/Videos/1/stream", {
-      headers: { Range: "bytes=0-1023" }
-    });
-    const response = await proxyService.handle(
-      request,
-      { target: "https://origin.test", mainVideoStreamMode: "direct" },
-      "/Videos/1/stream",
-      "node",
-      "secret",
-      {},
-      { waitUntil() {} },
-      { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } }
-    );
-    assert.equal(response.status, 404);
-    assert.equal(response.headers.get("Location"), null);
-    assert.equal(await response.text(), "Not Found");
-  });
+      const response = await proxyService.handle(
+        request,
+        { target: "https://origin.test", mainVideoStreamMode: "direct" },
+        "/Videos/1/stream",
+        "node",
+        "secret",
+        {},
+        { waitUntil() {} },
+        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
+      );
+      assert.equal(response.status, 404);
+      assert.equal(response.headers.get("Location"), null);
+      assert.equal(await response.text(), "Not Found");
+    },
+  );
   assert.equal(rangeProbeFetchCount, 1);
   assert.equal(rangeProbeBodyCancelCount, 1);
 
   let allowedRedirectFetchCount = 0;
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      allowedRedirectFetchCount += 1;
-      const pathname = new URL(url).pathname;
-      if (allowedRedirectFetchCount === 1) {
-        assert.equal(pathname, "/");
-        return new Response(null, { status: 302, headers: { Location: "/webhooks/events" } });
-      }
-      assert.equal(pathname, "/webhooks/events");
-      return new Response("allowed non-web redirect");
-    }
-  }, async () => {
-    const request = new Request("https://worker.test/node/secret/");
-    const response = await proxyService.handle(
-      request,
-      { target: "https://origin.test" },
-      "/",
-      "node",
-      "secret",
-      {},
-      { waitUntil() {} },
-      { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } }
-    );
-    assert.equal(response.status, 200);
-    assert.equal(await response.text(), "allowed non-web redirect");
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        allowedRedirectFetchCount += 1;
+        const pathname = new URL(url).pathname;
+        if (allowedRedirectFetchCount === 1) {
+          assert.equal(pathname, "/");
+          return new Response(null, { status: 302, headers: { Location: "/webhooks/events" } });
+        }
+        assert.equal(pathname, "/webhooks/events");
+        return new Response("allowed non-web redirect");
+      },
+    },
+    async () => {
+      const request = new Request("https://worker.test/node/secret/");
+      const response = await proxyService.handle(
+        request,
+        { target: "https://origin.test" },
+        "/",
+        "node",
+        "secret",
+        {},
+        { waitUntil() {} },
+        { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } },
+      );
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), "allowed non-web redirect");
+    },
+  );
   assert.equal(allowedRedirectFetchCount, 2);
 });
 
@@ -3000,7 +3581,9 @@ test("runtime config refresh is single-flight and cached by namespace", async ()
       await loadGate.promise;
       return { rateLimitRpm: 321, enableH2: true };
     },
-    async put() { configWriteCount += 1; }
+    async put() {
+      configWriteCount += 1;
+    },
   };
   const env = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "runtime-config-single-flight" };
 
@@ -3036,7 +3619,7 @@ test("runtime config invalidation prevents an older load from restoring stale ca
       }
       return { rateLimitRpm: 200 };
     },
-    async put() {}
+    async put() {},
   };
   const env = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "runtime-config-invalidation" };
 
@@ -3064,16 +3647,16 @@ test("runtime config caches are isolated by KV binding without an explicit names
       async get() {
         firstReads += 1;
         return { rateLimitRpm: 111 };
-      }
-    }
+      },
+    },
   };
   const secondEnv = {
     ENI_KV: {
       async get() {
         secondReads += 1;
         return { rateLimitRpm: 222 };
-      }
-    }
+      },
+    },
   };
 
   assert.equal((await getRuntimeConfig(firstEnv)).rateLimitRpm, 111);
@@ -3098,7 +3681,7 @@ test("runtime config namespaces remain isolated within one KV binding", async ()
     async get() {
       reads += 1;
       return { rateLimitRpm: reads === 1 ? 101 : 202 };
-    }
+    },
   };
   const firstEnv = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "first" };
   const secondEnv = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "second" };
@@ -3140,7 +3723,14 @@ test("KV mutation queues serialize one binding without blocking another", async 
   assert.deepEqual(events, ["first:start", "other:start", "other:end"]);
   releaseFirst.resolve();
   await Promise.all([first, second, other]);
-  assert.deepEqual(events, ["first:start", "other:start", "other:end", "first:end", "second:start", "second:end"]);
+  assert.deepEqual(events, [
+    "first:start",
+    "other:start",
+    "other:end",
+    "first:end",
+    "second:start",
+    "second:end",
+  ]);
   resetRuntimeBindingStates();
 });
 
@@ -3164,14 +3754,14 @@ test("runtime config writes roll back when metadata persistence fails", async ()
     },
     async delete(key) {
       storedValues.delete(key);
-    }
+    },
   };
   const env = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "runtime-config-prime" };
   await getRuntimeConfig(env);
 
   await assert.rejects(
     kernel.persistRuntimeConfig({ rateLimitRpm: 20 }, { env, kv }),
-    /metadata maintenance failed/
+    /metadata maintenance failed/,
   );
 
   assert.equal(JSON.parse(storedValues.get(kernel.CONFIG_KEY)).rateLimitRpm, 10);
@@ -3185,22 +3775,25 @@ test("runtime config writes roll back when metadata persistence fails", async ()
 test("host-prefix CNAME targets normalize at config and node boundaries", async () => {
   const { kv } = createInMemoryKvStore({ [kernel.CONFIG_KEY]: {} });
   const env = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "host-prefix-normalize" };
-  const config = await kernel.persistRuntimeConfig({
-    defaultHostPrefixCnameTarget: "  Global.Target.Example.  "
-  }, { env, kv });
+  const config = await kernel.persistRuntimeConfig(
+    {
+      defaultHostPrefixCnameTarget: "  Global.Target.Example.  ",
+    },
+    { env, kv },
+  );
   assert.equal(config.defaultHostPrefixCnameTarget, "global.target.example");
 
   const hostPrefixNode = kernel.normalizeNode("alpha", {
     target: "https://origin.test",
     entryMode: "host_prefix",
-    hostPrefixCnameTarget: "  Node.Target.Example.  "
+    hostPrefixCnameTarget: "  Node.Target.Example.  ",
   }).data;
   assert.equal(hostPrefixNode.hostPrefixCnameTarget, "node.target.example");
 
   const kvRouteNode = kernel.normalizeNode("alpha", {
     target: "https://origin.test",
     entryMode: "kv_route",
-    hostPrefixCnameTarget: "node.target.example"
+    hostPrefixCnameTarget: "node.target.example",
   }).data;
   assert.equal(kvRouteNode.hostPrefixCnameTarget, "");
 });
@@ -3214,14 +3807,15 @@ test("invalid global host-prefix CNAME targets are rejected before persistence",
     "target.example/path",
     "*.target.example",
     "target example",
-    "192.0.2.1"
+    "192.0.2.1",
   ];
 
   for (const defaultHostPrefixCnameTarget of invalidTargets) {
     await assert.rejects(
       kernel.persistRuntimeConfig({ defaultHostPrefixCnameTarget }, { env, kv }),
-      error => error?.code === "HOST_PREFIX_CNAME_TARGET_INVALID"
-        && error?.details?.field === "defaultHostPrefixCnameTarget"
+      (error) =>
+        error?.code === "HOST_PREFIX_CNAME_TARGET_INVALID" &&
+        error?.details?.field === "defaultHostPrefixCnameTarget",
     );
   }
 });
@@ -3231,30 +3825,39 @@ test("host-prefix node write entrypoints reject incomplete DNS configuration bef
     {
       name: "save",
       invoke(config, context) {
-        return adminActions.saveOrImport({
-          name: "alpha",
-          target: "https://origin.test",
-          entryMode: "host_prefix"
-        }, { ...context, action: "save" });
-      }
+        return adminActions.saveOrImport(
+          {
+            name: "alpha",
+            target: "https://origin.test",
+            entryMode: "host_prefix",
+          },
+          { ...context, action: "save" },
+        );
+      },
     },
     {
       name: "node-import",
       invoke(config, context) {
-        return adminActions.saveOrImport({
-          nodes: [{ name: "alpha", target: "https://origin.test", entryMode: "host_prefix" }]
-        }, { ...context, action: "import" });
-      }
+        return adminActions.saveOrImport(
+          {
+            nodes: [{ name: "alpha", target: "https://origin.test", entryMode: "host_prefix" }],
+          },
+          { ...context, action: "import" },
+        );
+      },
     },
     {
       name: "full-import",
       invoke(config, context) {
-        return adminActions.importFull({
-          config,
-          nodes: [{ name: "alpha", target: "https://origin.test", entryMode: "host_prefix" }]
-        }, context);
-      }
-    }
+        return adminActions.importFull(
+          {
+            config,
+            nodes: [{ name: "alpha", target: "https://origin.test", entryMode: "host_prefix" }],
+          },
+          context,
+        );
+      },
+    },
   ];
   const requiredConfig = { cfZoneId: "zone-id", cfApiToken: "api-token" };
 
@@ -3263,21 +3866,22 @@ test("host-prefix node write entrypoints reject incomplete DNS configuration bef
       const config = { ...requiredConfig };
       if (missingField !== "HOST") delete config[missingField];
       const { kv, storedValues, putKeys, deleteKeys } = createInMemoryKvStore({
-        [kernel.CONFIG_KEY]: config
+        [kernel.CONFIG_KEY]: config,
       });
       const env = {
         ENI_KV: kv,
         ...(missingField === "HOST" ? {} : { HOST: "proxy.example" }),
-        __CONFIG_CACHE_NAMESPACE: `host-prefix-required-${entrypoint.name}-${missingField}`
+        __CONFIG_CACHE_NAMESPACE: `host-prefix-required-${entrypoint.name}-${missingField}`,
       };
       invalidateRuntimeConfigCache();
 
       try {
         await assert.rejects(
           entrypoint.invoke(config, { env, ctx: null, kv }),
-          error => error?.code === "HOST_PREFIX_DNS_CONFIG_REQUIRED"
-            && error?.status === 400
-            && error?.details?.missingFields?.includes(missingField)
+          (error) =>
+            error?.code === "HOST_PREFIX_DNS_CONFIG_REQUIRED" &&
+            error?.status === 400 &&
+            error?.details?.missingFields?.includes(missingField),
         );
         assert.equal(storedValues.has(`${kernel.PREFIX}alpha`), false);
         assert.deepEqual(putKeys, []);
@@ -3292,21 +3896,36 @@ test("host-prefix node write entrypoints reject incomplete DNS configuration bef
 test("node imports reject an oversized batch atomically before KV mutation", async () => {
   const { kv, storedValues, putKeys, deleteKeys } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: {},
-    [`${kernel.PREFIX}existing`]: { target: "https://existing.test", lines: [{ id: "line-1", target: "https://existing.test" }] }
+    [`${kernel.PREFIX}existing`]: {
+      target: "https://existing.test",
+      lines: [{ id: "line-1", target: "https://existing.test" }],
+    },
   });
-  const response = await adminActions.saveOrImport({
-    nodes: [
-      { name: "valid", target: "https://valid.test", lines: [{ id: "line-1", target: "https://valid.test" }] },
-      { name: "oversized", target: "https://origin.test", lines: [{ id: "line-1", target: "https://origin.test" }], remark: "界".repeat(1400) }
-    ]
-  }, { action: "import", env: { ENI_KV: kv }, ctx: null, kv });
+  const response = await adminActions.saveOrImport(
+    {
+      nodes: [
+        {
+          name: "valid",
+          target: "https://valid.test",
+          lines: [{ id: "line-1", target: "https://valid.test" }],
+        },
+        {
+          name: "oversized",
+          target: "https://origin.test",
+          lines: [{ id: "line-1", target: "https://origin.test" }],
+          remark: "界".repeat(1400),
+        },
+      ],
+    },
+    { action: "import", env: { ENI_KV: kv }, ctx: null, kv },
+  );
   const payload = await response.json();
 
   assert.equal(response.status, 400);
-	assert.equal(payload.error.code, "NODE_RESOURCE_LIMIT_EXCEEDED");
-	assert.equal(payload.error.details.nodeName, "oversized");
-	assert.equal(payload.error.details.field, "remark");
-	assert.ok(payload.error.details.actual > payload.error.details.limit);
+  assert.equal(payload.error.code, "NODE_RESOURCE_LIMIT_EXCEEDED");
+  assert.equal(payload.error.details.nodeName, "oversized");
+  assert.equal(payload.error.details.field, "remark");
+  assert.ok(payload.error.details.actual > payload.error.details.limit);
   assert.equal(storedValues.has(`${kernel.PREFIX}valid`), false);
   assert.equal(storedValues.has(`${kernel.PREFIX}oversized`), false);
   assert.deepEqual(putKeys, []);
@@ -3324,31 +3943,35 @@ test("host-prefix node writes reject malformed HOST without reflecting its value
     "*.proxy.example",
     "proxy_example",
     "proxy..example",
-    "192.0.2.1"
+    "192.0.2.1",
   ];
 
   for (const [index, HOST] of invalidHosts.entries()) {
     const { kv, storedValues, putKeys } = createInMemoryKvStore({
-      [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" }
+      [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" },
     });
     const env = {
       ENI_KV: kv,
       HOST,
-      __CONFIG_CACHE_NAMESPACE: `host-prefix-invalid-host-${index}`
+      __CONFIG_CACHE_NAMESPACE: `host-prefix-invalid-host-${index}`,
     };
     invalidateRuntimeConfigCache();
 
     try {
       await assert.rejects(
-        adminActions.saveOrImport({
-          name: "alpha",
-          target: "https://origin.test",
-          entryMode: "host_prefix"
-        }, { action: "save", env, ctx: null, kv }),
-        error => error?.code === "HOST_PREFIX_HOST_INVALID"
-          && error?.status === 400
-          && error?.details?.field === "HOST"
-          && !Object.values(error.details).includes(HOST)
+        adminActions.saveOrImport(
+          {
+            name: "alpha",
+            target: "https://origin.test",
+            entryMode: "host_prefix",
+          },
+          { action: "save", env, ctx: null, kv },
+        ),
+        (error) =>
+          error?.code === "HOST_PREFIX_HOST_INVALID" &&
+          error?.status === 400 &&
+          error?.details?.field === "HOST" &&
+          !Object.values(error.details).includes(HOST),
       );
       assert.equal(storedValues.has(`${kernel.PREFIX}alpha`), false);
       assert.deepEqual(putKeys, []);
@@ -3360,25 +3983,33 @@ test("host-prefix node writes reject malformed HOST without reflecting its value
 
 test("enabling host-prefix proxy rejects malformed HOST before config persistence", async () => {
   const { kv, storedValues, putKeys } = createInMemoryKvStore({
-    [kernel.CONFIG_KEY]: { enableHostPrefixProxy: false, cfZoneId: "zone-id", cfApiToken: "api-token" }
+    [kernel.CONFIG_KEY]: {
+      enableHostPrefixProxy: false,
+      cfZoneId: "zone-id",
+      cfApiToken: "api-token",
+    },
   });
   const env = {
     ENI_KV: kv,
     HOST: "https://proxy.example/",
-    __CONFIG_CACHE_NAMESPACE: "host-prefix-invalid-host-config-enable"
+    __CONFIG_CACHE_NAMESPACE: "host-prefix-invalid-host-config-enable",
   };
   invalidateRuntimeConfigCache();
 
   try {
     await assert.rejects(
-      kernel.persistRuntimeConfig({
-        enableHostPrefixProxy: true,
-        cfZoneId: "zone-id",
-        cfApiToken: "api-token"
-      }, { env, kv }),
-      error => error?.code === "HOST_PREFIX_HOST_INVALID"
-        && error?.status === 400
-        && error?.details?.field === "HOST"
+      kernel.persistRuntimeConfig(
+        {
+          enableHostPrefixProxy: true,
+          cfZoneId: "zone-id",
+          cfApiToken: "api-token",
+        },
+        { env, kv },
+      ),
+      (error) =>
+        error?.code === "HOST_PREFIX_HOST_INVALID" &&
+        error?.status === 400 &&
+        error?.details?.field === "HOST",
     );
     assert.equal(JSON.parse(storedValues.get(kernel.CONFIG_KEY)).enableHostPrefixProxy, false);
     assert.deepEqual(putKeys, []);
@@ -3389,31 +4020,38 @@ test("enabling host-prefix proxy rejects malformed HOST before config persistenc
 
 test("host-prefix HOST canonicalization accepts case whitespace and one trailing dot", async () => {
   const { kv, storedValues } = createInMemoryKvStore({
-    [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" }
+    [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" },
   });
   const env = {
     ENI_KV: kv,
     HOST: " Proxy.Example. ",
-    __CONFIG_CACHE_NAMESPACE: "host-prefix-host-canonicalization"
+    __CONFIG_CACHE_NAMESPACE: "host-prefix-host-canonicalization",
   };
   const dns = createCloudflareDnsFetch();
   invalidateRuntimeConfigCache();
 
   try {
-    const response = await withWorkerGlobals({ fetch: dns.fetch }, () => adminActions.saveOrImport({
-      name: "alpha",
-      target: "https://origin.test",
-      entryMode: "host_prefix"
-    }, { action: "save", env, ctx: null, kv }));
+    const response = await withWorkerGlobals({ fetch: dns.fetch }, () =>
+      adminActions.saveOrImport(
+        {
+          name: "alpha",
+          target: "https://origin.test",
+          entryMode: "host_prefix",
+        },
+        { action: "save", env, ctx: null, kv },
+      ),
+    );
     assert.equal(response.status, 200);
     assert.equal(JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).entryMode, "host_prefix");
-    assert.deepEqual(getComparableDnsRecords(dns.records), [{
-      name: "alpha.proxy.example",
-      type: "CNAME",
-      content: "proxy.example",
-      ttl: 1,
-      proxied: false
-    }]);
+    assert.deepEqual(getComparableDnsRecords(dns.records), [
+      {
+        name: "alpha.proxy.example",
+        type: "CNAME",
+        content: "proxy.example",
+        ttl: 1,
+        proxied: false,
+      },
+    ]);
   } finally {
     invalidateRuntimeConfigCache();
   }
@@ -3422,32 +4060,42 @@ test("host-prefix HOST canonicalization accepts case whitespace and one trailing
 test("partial host-prefix updates require readiness while downgrade remains available", async () => {
   const { kv, storedValues } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" },
-    [`${kernel.PREFIX}alpha`]: { target: "https://old-origin.test", entryMode: "host_prefix" }
+    [`${kernel.PREFIX}alpha`]: { target: "https://old-origin.test", entryMode: "host_prefix" },
   });
   const env = {
     ENI_KV: kv,
-    __CONFIG_CACHE_NAMESPACE: "host-prefix-partial-update"
+    __CONFIG_CACHE_NAMESPACE: "host-prefix-partial-update",
   };
   invalidateRuntimeConfigCache();
 
   try {
     await assert.rejects(
-      adminActions.saveOrImport({
+      adminActions.saveOrImport(
+        {
+          name: "alpha",
+          originalName: "alpha",
+          target: "https://new-origin.test",
+        },
+        { action: "save", env, ctx: null, kv },
+      ),
+      (error) =>
+        error?.code === "HOST_PREFIX_DNS_CONFIG_REQUIRED" &&
+        error?.details?.missingFields?.includes("HOST"),
+    );
+    assert.equal(
+      JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).target,
+      "https://old-origin.test",
+    );
+
+    const response = await adminActions.saveOrImport(
+      {
         name: "alpha",
         originalName: "alpha",
-        target: "https://new-origin.test"
-      }, { action: "save", env, ctx: null, kv }),
-      error => error?.code === "HOST_PREFIX_DNS_CONFIG_REQUIRED"
-        && error?.details?.missingFields?.includes("HOST")
+        target: "https://new-origin.test",
+        entryMode: "kv_route",
+      },
+      { action: "save", env, ctx: null, kv },
     );
-    assert.equal(JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).target, "https://old-origin.test");
-
-    const response = await adminActions.saveOrImport({
-      name: "alpha",
-      originalName: "alpha",
-      target: "https://new-origin.test",
-      entryMode: "kv_route"
-    }, { action: "save", env, ctx: null, kv });
     assert.equal(response.status, 200);
     assert.equal(JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).entryMode, "kv_route");
   } finally {
@@ -3461,22 +4109,29 @@ test("host-prefix shortcut node mutations require DNS readiness", async () => {
     [`${kernel.PREFIX}alpha`]: {
       target: "https://origin.test",
       entryMode: "host_prefix",
-      mainVideoStreamMode: "inherit"
-    }
+      mainVideoStreamMode: "inherit",
+    },
   });
   const env = {
     ENI_KV: kv,
-    __CONFIG_CACHE_NAMESPACE: "host-prefix-shortcut-readiness"
+    __CONFIG_CACHE_NAMESPACE: "host-prefix-shortcut-readiness",
   };
   invalidateRuntimeConfigCache();
 
   try {
     await assert.rejects(
-      adminActions.saveMainVideoStreamPolicyShortcuts({ selectedNodeNames: ["alpha"] }, { env, ctx: null, kv }),
-      error => error?.code === "HOST_PREFIX_DNS_CONFIG_REQUIRED"
-        && error?.details?.missingFields?.includes("HOST")
+      adminActions.saveMainVideoStreamPolicyShortcuts(
+        { selectedNodeNames: ["alpha"] },
+        { env, ctx: null, kv },
+      ),
+      (error) =>
+        error?.code === "HOST_PREFIX_DNS_CONFIG_REQUIRED" &&
+        error?.details?.missingFields?.includes("HOST"),
     );
-    assert.equal(JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).mainVideoStreamMode, "inherit");
+    assert.equal(
+      JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).mainVideoStreamMode,
+      "inherit",
+    );
     assert.deepEqual(putKeys, []);
   } finally {
     invalidateRuntimeConfigCache();
@@ -3489,16 +4144,21 @@ test("full import validates host-prefix nodes with secrets merged from current c
   const env = {
     ENI_KV: kv,
     HOST: "proxy.example",
-    __CONFIG_CACHE_NAMESPACE: "host-prefix-full-import-merged-secrets"
+    __CONFIG_CACHE_NAMESPACE: "host-prefix-full-import-merged-secrets",
   };
   const dns = createCloudflareDnsFetch();
   invalidateRuntimeConfigCache();
 
   try {
-    const response = await withWorkerGlobals({ fetch: dns.fetch }, () => adminActions.importFull({
-      config: { cfZoneId: "zone-id", rateLimitRpm: 20 },
-      nodes: [{ name: "alpha", target: "https://origin.test", entryMode: "host_prefix" }]
-    }, { env, ctx: null, kv }));
+    const response = await withWorkerGlobals({ fetch: dns.fetch }, () =>
+      adminActions.importFull(
+        {
+          config: { cfZoneId: "zone-id", rateLimitRpm: 20 },
+          nodes: [{ name: "alpha", target: "https://origin.test", entryMode: "host_prefix" }],
+        },
+        { env, ctx: null, kv },
+      ),
+    );
     assert.equal(response.status, 200);
     assert.equal(JSON.parse(storedValues.get(kernel.CONFIG_KEY)).cfApiToken, "api-token");
     assert.equal(JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).entryMode, "host_prefix");
@@ -3513,7 +4173,7 @@ test("host-prefix CNAME target priority is node then global then HOST", () => {
   const inheritedNode = { target: "https://origin.test", entryMode: "host_prefix" };
   const overriddenNode = {
     ...inheritedNode,
-    hostPrefixCnameTarget: "node.target.example"
+    hostPrefixCnameTarget: "node.target.example",
   };
 
   const nodeOverridePlan = kernel.buildHostPrefixDnsSyncPlan(
@@ -3522,7 +4182,7 @@ test("host-prefix CNAME target priority is node then global then HOST", () => {
     "alpha",
     overriddenNode,
     hostRoot,
-    { nextConfig: { defaultHostPrefixCnameTarget: "global.target.example" } }
+    { nextConfig: { defaultHostPrefixCnameTarget: "global.target.example" } },
   );
   assert.equal(nodeOverridePlan.nextCnameTarget, "node.target.example");
 
@@ -3532,7 +4192,7 @@ test("host-prefix CNAME target priority is node then global then HOST", () => {
     "alpha",
     inheritedNode,
     hostRoot,
-    { nextConfig: { defaultHostPrefixCnameTarget: "global.target.example" } }
+    { nextConfig: { defaultHostPrefixCnameTarget: "global.target.example" } },
   );
   assert.equal(globalDefaultPlan.nextCnameTarget, "global.target.example");
 
@@ -3541,53 +4201,50 @@ test("host-prefix CNAME target priority is node then global then HOST", () => {
     null,
     "alpha",
     inheritedNode,
-    hostRoot
+    hostRoot,
   );
   assert.equal(hostFallbackPlan.nextCnameTarget, hostRoot);
 });
 
 test("host-prefix DNS plans carry forward and rollback CNAME targets", () => {
   const node = { target: "https://origin.test", entryMode: "host_prefix" };
-  const plan = kernel.buildHostPrefixDnsSyncPlan(
-    "alpha",
-    node,
-    "alpha",
-    node,
-    "proxy.example",
-    {
-      previousConfig: { defaultHostPrefixCnameTarget: "old.target.example" },
-      nextConfig: { defaultHostPrefixCnameTarget: "new.target.example" }
-    }
-  );
+  const plan = kernel.buildHostPrefixDnsSyncPlan("alpha", node, "alpha", node, "proxy.example", {
+    previousConfig: { defaultHostPrefixCnameTarget: "old.target.example" },
+    nextConfig: { defaultHostPrefixCnameTarget: "new.target.example" },
+  });
 
   assert.equal(plan.previousDnsHost, "alpha.proxy.example");
   assert.equal(plan.nextDnsHost, "alpha.proxy.example");
   assert.equal(plan.previousCnameTarget, "old.target.example");
   assert.equal(plan.nextCnameTarget, "new.target.example");
-  assert.deepEqual(plan.steps, [{
-    type: "upsert",
-    host: "alpha.proxy.example",
-    cnameTarget: "new.target.example"
-  }]);
-  assert.deepEqual(plan.rollbackSteps, [{
-    type: "upsert",
-    host: "alpha.proxy.example",
-    cnameTarget: "old.target.example"
-  }]);
+  assert.deepEqual(plan.steps, [
+    {
+      type: "upsert",
+      host: "alpha.proxy.example",
+      cnameTarget: "new.target.example",
+    },
+  ]);
+  assert.deepEqual(plan.rollbackSteps, [
+    {
+      type: "upsert",
+      host: "alpha.proxy.example",
+      cnameTarget: "old.target.example",
+    },
+  ]);
 });
 
 test("node summaries retain host-prefix CNAME overrides without changing proxy cache revision", () => {
   const baseNode = {
     target: "https://origin.test",
-    entryMode: "host_prefix"
+    entryMode: "host_prefix",
   };
   const firstSummary = kernel.buildNodeSummary("alpha", {
     ...baseNode,
-    hostPrefixCnameTarget: "First.Target.Example."
+    hostPrefixCnameTarget: "First.Target.Example.",
   }).summary;
   const secondSummary = kernel.buildNodeSummary("alpha", {
     ...baseNode,
-    hostPrefixCnameTarget: "second.target.example"
+    hostPrefixCnameTarget: "second.target.example",
   }).summary;
 
   assert.equal(firstSummary.hostPrefixCnameTarget, "first.target.example");
@@ -3599,28 +4256,28 @@ test("global host-prefix CNAME changes sync only nodes that inherit the default"
   const previousConfig = {
     defaultHostPrefixCnameTarget: "old.target.example",
     cfZoneId: "zone-id",
-    cfApiToken: "api-token"
+    cfApiToken: "api-token",
   };
   const { kv, storedValues } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: previousConfig,
     [`${kernel.PREFIX}inherited`]: {
       target: "https://inherited-origin.test",
-      entryMode: "host_prefix"
+      entryMode: "host_prefix",
     },
     [`${kernel.PREFIX}overridden`]: {
       target: "https://overridden-origin.test",
       entryMode: "host_prefix",
-      hostPrefixCnameTarget: "node.target.example"
+      hostPrefixCnameTarget: "node.target.example",
     },
     [`${kernel.PREFIX}path-node`]: {
       target: "https://path-origin.test",
-      entryMode: "kv_route"
-    }
+      entryMode: "kv_route",
+    },
   });
   const env = {
     ENI_KV: kv,
     HOST: "proxy.example",
-    __CONFIG_CACHE_NAMESPACE: "cname-global-sync-success"
+    __CONFIG_CACHE_NAMESPACE: "cname-global-sync-success",
   };
   const dnsPlans = [];
   const originalPersistHostPrefixDnsSyncPlan = kernel.persistHostPrefixDnsSyncPlan;
@@ -3631,20 +4288,30 @@ test("global host-prefix CNAME changes sync only nodes that inherit the default"
   invalidateRuntimeConfigCache();
 
   try {
-    const savedConfig = await kernel.persistRuntimeConfig({
-      ...previousConfig,
-      defaultHostPrefixCnameTarget: "new.target.example"
-    }, { env, kv });
+    const savedConfig = await kernel.persistRuntimeConfig(
+      {
+        ...previousConfig,
+        defaultHostPrefixCnameTarget: "new.target.example",
+      },
+      { env, kv },
+    );
 
     assert.equal(savedConfig.defaultHostPrefixCnameTarget, "new.target.example");
-    assert.deepEqual(dnsPlans.map(plan => plan.steps), [[{
-      type: "upsert",
-      host: "inherited.proxy.example",
-      cnameTarget: "new.target.example"
-    }]]);
+    assert.deepEqual(
+      dnsPlans.map((plan) => plan.steps),
+      [
+        [
+          {
+            type: "upsert",
+            host: "inherited.proxy.example",
+            cnameTarget: "new.target.example",
+          },
+        ],
+      ],
+    );
     assert.equal(
       JSON.parse(storedValues.get(kernel.CONFIG_KEY)).defaultHostPrefixCnameTarget,
-      "new.target.example"
+      "new.target.example",
     );
   } finally {
     kernel.persistHostPrefixDnsSyncPlan = originalPersistHostPrefixDnsSyncPlan;
@@ -3656,23 +4323,23 @@ test("global host-prefix CNAME sync rolls back earlier DNS updates before config
   const previousConfig = {
     defaultHostPrefixCnameTarget: "old.target.example",
     cfZoneId: "zone-id",
-    cfApiToken: "api-token"
+    cfApiToken: "api-token",
   };
   const { kv, storedValues, putKeys } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: previousConfig,
     [`${kernel.PREFIX}alpha`]: {
       target: "https://alpha-origin.test",
-      entryMode: "host_prefix"
+      entryMode: "host_prefix",
     },
     [`${kernel.PREFIX}beta`]: {
       target: "https://beta-origin.test",
-      entryMode: "host_prefix"
-    }
+      entryMode: "host_prefix",
+    },
   });
   const env = {
     ENI_KV: kv,
     HOST: "proxy.example",
-    __CONFIG_CACHE_NAMESPACE: "cname-global-sync-rollback"
+    __CONFIG_CACHE_NAMESPACE: "cname-global-sync-rollback",
   };
   const dnsSteps = [];
   let forwardPlanCount = 0;
@@ -3690,42 +4357,54 @@ test("global host-prefix CNAME sync rolls back earlier DNS updates before config
 
   try {
     await assert.rejects(
-      kernel.persistRuntimeConfig({
-        ...previousConfig,
-        defaultHostPrefixCnameTarget: "new.target.example"
-      }, { env, kv }),
-      error => error?.message === "beta_dns_update_failed"
-        && error?.details?.hostPrefixDnsSyncedCount === 1
-        && error?.details?.failedHostPrefixDnsHost === "beta.proxy.example"
-        && error?.details?.rollbackAttempted === true
-        && error?.details?.rollbackSucceeded === true
+      kernel.persistRuntimeConfig(
+        {
+          ...previousConfig,
+          defaultHostPrefixCnameTarget: "new.target.example",
+        },
+        { env, kv },
+      ),
+      (error) =>
+        error?.message === "beta_dns_update_failed" &&
+        error?.details?.hostPrefixDnsSyncedCount === 1 &&
+        error?.details?.failedHostPrefixDnsHost === "beta.proxy.example" &&
+        error?.details?.rollbackAttempted === true &&
+        error?.details?.rollbackSucceeded === true,
     );
 
     assert.deepEqual(dnsSteps, [
-      [{
-        type: "upsert",
-        host: "alpha.proxy.example",
-        cnameTarget: "new.target.example"
-      }],
-      [{
-        type: "upsert",
-        host: "beta.proxy.example",
-        cnameTarget: "new.target.example"
-      }],
-      [{
-        type: "upsert",
-        host: "beta.proxy.example",
-        cnameTarget: "old.target.example"
-      }],
-      [{
-        type: "upsert",
-        host: "alpha.proxy.example",
-        cnameTarget: "old.target.example"
-      }]
+      [
+        {
+          type: "upsert",
+          host: "alpha.proxy.example",
+          cnameTarget: "new.target.example",
+        },
+      ],
+      [
+        {
+          type: "upsert",
+          host: "beta.proxy.example",
+          cnameTarget: "new.target.example",
+        },
+      ],
+      [
+        {
+          type: "upsert",
+          host: "beta.proxy.example",
+          cnameTarget: "old.target.example",
+        },
+      ],
+      [
+        {
+          type: "upsert",
+          host: "alpha.proxy.example",
+          cnameTarget: "old.target.example",
+        },
+      ],
     ]);
     assert.equal(
       JSON.parse(storedValues.get(kernel.CONFIG_KEY)).defaultHostPrefixCnameTarget,
-      "old.target.example"
+      "old.target.example",
     );
     assert.equal(storedValues.has(kernel.CONFIG_SNAPSHOTS_KEY), false);
     assert.equal(putKeys.includes(kernel.CONFIG_KEY), false);
@@ -3738,12 +4417,26 @@ test("global host-prefix CNAME sync rolls back earlier DNS updates before config
 
 test("CNAME sync restores the complete host snapshot after a partial delete failure", async () => {
   const initialRecords = [
-    { id: "a-1", name: "alpha.proxy.example", type: "A", content: "192.0.2.10", ttl: 120, proxied: false },
-    { id: "aaaa-1", name: "alpha.proxy.example", type: "AAAA", content: "2001:db8::10", ttl: 300, proxied: false }
+    {
+      id: "a-1",
+      name: "alpha.proxy.example",
+      type: "A",
+      content: "192.0.2.10",
+      ttl: 120,
+      proxied: false,
+    },
+    {
+      id: "aaaa-1",
+      name: "alpha.proxy.example",
+      type: "AAAA",
+      content: "2001:db8::10",
+      ttl: 300,
+      proxied: false,
+    },
   ];
   const dns = createCloudflareDnsFetch(initialRecords, {
     failMutationAt: 2,
-    failureMessage: "second_delete_failed"
+    failureMessage: "second_delete_failed",
   });
   const { kv } = createInMemoryKvStore();
 
@@ -3753,25 +4446,39 @@ test("CNAME sync restores the complete host snapshot after a partial delete fail
         env: { HOST: "proxy.example" },
         kv,
         config: { cfZoneId: "zone-id", cfApiToken: "api-token" },
-        cnameTarget: "target.example"
+        cnameTarget: "target.example",
       }),
-      error => error?.message === "second_delete_failed"
-        && error?.details?.rollbackAttempted === true
-        && error?.details?.rollbackSucceeded === true
+      (error) =>
+        error?.message === "second_delete_failed" &&
+        error?.details?.rollbackAttempted === true &&
+        error?.details?.rollbackSucceeded === true,
     );
   });
 
-  assert.deepEqual(getComparableDnsRecords(dns.records), getComparableDnsRecords(new Map(initialRecords.map(record => [record.id, record]))));
+  assert.deepEqual(
+    getComparableDnsRecords(dns.records),
+    getComparableDnsRecords(new Map(initialRecords.map((record) => [record.id, record]))),
+  );
 });
 
 test("CNAME sync restores DNS when strict history persistence fails", async () => {
   const initialRecords = [
-    { id: "cname-1", name: "alpha.proxy.example", type: "CNAME", content: "old.target.example", ttl: 60, proxied: false }
+    {
+      id: "cname-1",
+      name: "alpha.proxy.example",
+      type: "CNAME",
+      content: "old.target.example",
+      ttl: 60,
+      proxied: false,
+    },
   ];
   const dns = createCloudflareDnsFetch(initialRecords);
-  const historyKey = kernel.getDnsRecordHistoryKey("zone-id", kernel.getDnsHostHistoryRecordId("alpha.proxy.example"));
+  const historyKey = kernel.getDnsRecordHistoryKey(
+    "zone-id",
+    kernel.getDnsHostHistoryRecordId("alpha.proxy.example"),
+  );
   const { kv } = createInMemoryKvStore({
-    [historyKey]: [{ type: "CNAME", content: "old.target.example" }]
+    [historyKey]: [{ type: "CNAME", content: "old.target.example" }],
   });
   const originalPut = kv.put;
   kv.put = async (key, value) => {
@@ -3785,23 +4492,37 @@ test("CNAME sync restores DNS when strict history persistence fails", async () =
         env: { HOST: "proxy.example" },
         kv,
         config: { cfZoneId: "zone-id", cfApiToken: "api-token" },
-        cnameTarget: "new.target.example"
+        cnameTarget: "new.target.example",
       }),
-      error => error?.message === "history_write_failed"
-        && error?.details?.rollbackAttempted === true
-        && error?.details?.rollbackSucceeded === true
+      (error) =>
+        error?.message === "history_write_failed" &&
+        error?.details?.rollbackAttempted === true &&
+        error?.details?.rollbackSucceeded === true,
     );
   });
 
-  assert.deepEqual(getComparableDnsRecords(dns.records), getComparableDnsRecords(new Map(initialRecords.map(record => [record.id, record]))));
+  assert.deepEqual(
+    getComparableDnsRecords(dns.records),
+    getComparableDnsRecords(new Map(initialRecords.map((record) => [record.id, record]))),
+  );
 });
 
 test("CNAME history mutation fails closed when the existing history cannot be read", async () => {
   const initialRecords = [
-    { id: "cname-1", name: "alpha.proxy.example", type: "CNAME", content: "old.target.example", ttl: 60, proxied: false }
+    {
+      id: "cname-1",
+      name: "alpha.proxy.example",
+      type: "CNAME",
+      content: "old.target.example",
+      ttl: 60,
+      proxied: false,
+    },
   ];
   const dns = createCloudflareDnsFetch(initialRecords);
-  const historyKey = kernel.getDnsRecordHistoryKey("zone-id", kernel.getDnsHostHistoryRecordId("alpha.proxy.example"));
+  const historyKey = kernel.getDnsRecordHistoryKey(
+    "zone-id",
+    kernel.getDnsHostHistoryRecordId("alpha.proxy.example"),
+  );
   const { kv, putKeys } = createInMemoryKvStore();
   const originalGet = kv.get;
   kv.get = async (key, options) => {
@@ -3815,26 +4536,39 @@ test("CNAME history mutation fails closed when the existing history cannot be re
         env: { HOST: "proxy.example" },
         kv,
         config: { cfZoneId: "zone-id", cfApiToken: "api-token" },
-        cnameTarget: "new.target.example"
+        cnameTarget: "new.target.example",
       }),
-      error => error?.message === "history_read_failed"
-        && error?.details?.rollbackSucceeded === true
+      (error) =>
+        error?.message === "history_read_failed" && error?.details?.rollbackSucceeded === true,
     );
   });
 
   assert.equal(putKeys.includes(historyKey), false);
-  assert.deepEqual(getComparableDnsRecords(dns.records), getComparableDnsRecords(new Map(initialRecords.map(record => [record.id, record]))));
+  assert.deepEqual(
+    getComparableDnsRecords(dns.records),
+    getComparableDnsRecords(new Map(initialRecords.map((record) => [record.id, record]))),
+  );
 });
 
 test("single-record DNS update restores the previous record when history persistence fails", async () => {
   const initialRecords = [
-    { id: "cname-1", name: "alpha.proxy.example", type: "CNAME", content: "old.target.example", ttl: 60, proxied: false }
+    {
+      id: "cname-1",
+      name: "alpha.proxy.example",
+      type: "CNAME",
+      content: "old.target.example",
+      ttl: 60,
+      proxied: false,
+    },
   ];
   const dns = createCloudflareDnsFetch(initialRecords);
-  const historyKey = kernel.getDnsRecordHistoryKey("zone-id", kernel.getDnsHostHistoryRecordId("alpha.proxy.example"));
+  const historyKey = kernel.getDnsRecordHistoryKey(
+    "zone-id",
+    kernel.getDnsHostHistoryRecordId("alpha.proxy.example"),
+  );
   const { kv } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" },
-    [historyKey]: [{ type: "CNAME", content: "old.target.example" }]
+    [historyKey]: [{ type: "CNAME", content: "old.target.example" }],
   });
   const originalPut = kv.put;
   kv.put = async (key, value) => {
@@ -3845,18 +4579,23 @@ test("single-record DNS update restores the previous record when history persist
   invalidateRuntimeConfigCache();
 
   try {
-    const response = await withWorkerGlobals({ fetch: dns.fetch }, () => adminActions.updateDnsRecord({
-      recordId: "cname-1",
-      host: "alpha.proxy.example",
-      type: "CNAME",
-      content: "new.target.example"
-    }, {
-      env,
-      kv,
-      request: new Request("https://proxy.example/admin", {
-        headers: { "X-Admin-Confirm": "updateDnsRecord" }
-      })
-    }));
+    const response = await withWorkerGlobals({ fetch: dns.fetch }, () =>
+      adminActions.updateDnsRecord(
+        {
+          recordId: "cname-1",
+          host: "alpha.proxy.example",
+          type: "CNAME",
+          content: "new.target.example",
+        },
+        {
+          env,
+          kv,
+          request: new Request("https://proxy.example/admin", {
+            headers: { "X-Admin-Confirm": "updateDnsRecord" },
+          }),
+        },
+      ),
+    );
     const payload = await response.json();
 
     assert.equal(response.status, 400);
@@ -3865,7 +4604,10 @@ test("single-record DNS update restores the previous record when history persist
     assert.equal(payload.error.details.rollbackAttempted, true);
     assert.equal(payload.error.details.rollbackSucceeded, true);
     assert.equal(payload.error.details.rollbackError, "");
-    assert.deepEqual(getComparableDnsRecords(dns.records), getComparableDnsRecords(new Map(initialRecords.map(record => [record.id, record]))));
+    assert.deepEqual(
+      getComparableDnsRecords(dns.records),
+      getComparableDnsRecords(new Map(initialRecords.map((record) => [record.id, record]))),
+    );
   } finally {
     invalidateRuntimeConfigCache();
   }
@@ -3873,38 +4615,56 @@ test("single-record DNS update restores the previous record when history persist
 
 test("single-record DNS update reports a failed history compensation", async () => {
   const initialRecords = [
-    { id: "cname-1", name: "alpha.proxy.example", type: "CNAME", content: "old.target.example", ttl: 60, proxied: false }
+    {
+      id: "cname-1",
+      name: "alpha.proxy.example",
+      type: "CNAME",
+      content: "old.target.example",
+      ttl: 60,
+      proxied: false,
+    },
   ];
   const dns = createCloudflareDnsFetch(initialRecords, {
     failMutationAt: 2,
-    failureMessage: "dns_rollback_failed"
+    failureMessage: "dns_rollback_failed",
   });
-  const historyKey = kernel.getDnsRecordHistoryKey("zone-id", kernel.getDnsHostHistoryRecordId("alpha.proxy.example"));
+  const historyKey = kernel.getDnsRecordHistoryKey(
+    "zone-id",
+    kernel.getDnsHostHistoryRecordId("alpha.proxy.example"),
+  );
   const { kv } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" },
-    [historyKey]: [{ type: "CNAME", content: "old.target.example" }]
+    [historyKey]: [{ type: "CNAME", content: "old.target.example" }],
   });
   const originalPut = kv.put;
   kv.put = async (key, value) => {
     if (key === historyKey) throw new Error("history_write_failed");
     return await originalPut(key, value);
   };
-  const env = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "single-dns-update-history-rollback-failure" };
+  const env = {
+    ENI_KV: kv,
+    __CONFIG_CACHE_NAMESPACE: "single-dns-update-history-rollback-failure",
+  };
   invalidateRuntimeConfigCache();
 
   try {
-    const response = await withWorkerGlobals({ fetch: dns.fetch }, () => adminActions.updateDnsRecord({
-      recordId: "cname-1",
-      host: "alpha.proxy.example",
-      type: "CNAME",
-      content: "new.target.example"
-    }, {
-      env,
-      kv,
-      request: new Request("https://proxy.example/admin", {
-        headers: { "X-Admin-Confirm": "updateDnsRecord" }
-      })
-    }));
+    const response = await withWorkerGlobals({ fetch: dns.fetch }, () =>
+      adminActions.updateDnsRecord(
+        {
+          recordId: "cname-1",
+          host: "alpha.proxy.example",
+          type: "CNAME",
+          content: "new.target.example",
+        },
+        {
+          env,
+          kv,
+          request: new Request("https://proxy.example/admin", {
+            headers: { "X-Admin-Confirm": "updateDnsRecord" },
+          }),
+        },
+      ),
+    );
     const payload = await response.json();
 
     assert.equal(response.status, 400);
@@ -3920,9 +4680,12 @@ test("single-record DNS update reports a failed history compensation", async () 
 
 test("single-record DNS create deletes the new record when history persistence fails", async () => {
   const dns = createCloudflareDnsFetch([]);
-  const historyKey = kernel.getDnsRecordHistoryKey("zone-id", kernel.getDnsHostHistoryRecordId("alpha.proxy.example"));
+  const historyKey = kernel.getDnsRecordHistoryKey(
+    "zone-id",
+    kernel.getDnsHostHistoryRecordId("alpha.proxy.example"),
+  );
   const { kv } = createInMemoryKvStore({
-    [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" }
+    [kernel.CONFIG_KEY]: { cfZoneId: "zone-id", cfApiToken: "api-token" },
   });
   const originalPut = kv.put;
   kv.put = async (key, value) => {
@@ -3933,17 +4696,22 @@ test("single-record DNS create deletes the new record when history persistence f
   invalidateRuntimeConfigCache();
 
   try {
-    const response = await withWorkerGlobals({ fetch: dns.fetch }, () => adminActions.updateDnsRecord({
-      host: "alpha.proxy.example",
-      type: "CNAME",
-      content: "new.target.example"
-    }, {
-      env,
-      kv,
-      request: new Request("https://proxy.example/admin", {
-        headers: { "X-Admin-Confirm": "createDnsRecord" }
-      })
-    }));
+    const response = await withWorkerGlobals({ fetch: dns.fetch }, () =>
+      adminActions.updateDnsRecord(
+        {
+          host: "alpha.proxy.example",
+          type: "CNAME",
+          content: "new.target.example",
+        },
+        {
+          env,
+          kv,
+          request: new Request("https://proxy.example/admin", {
+            headers: { "X-Admin-Confirm": "createDnsRecord" },
+          }),
+        },
+      ),
+    );
     const payload = await response.json();
 
     assert.equal(response.status, 400);
@@ -3957,7 +4725,7 @@ test("single-record DNS create deletes the new record when history persistence f
 
 test("node rollback restores KV even when DNS compensation fails", async () => {
   const { kv, storedValues } = createInMemoryKvStore({
-    [`${kernel.PREFIX}alpha`]: { target: "https://new-origin.test", entryMode: "host_prefix" }
+    [`${kernel.PREFIX}alpha`]: { target: "https://new-origin.test", entryMode: "host_prefix" },
   });
   const mutation = {
     previousName: "alpha",
@@ -3965,7 +4733,12 @@ test("node rollback restores KV even when DNS compensation fails", async () => {
     nextName: "alpha",
     nextNode: { target: "https://new-origin.test", entryMode: "host_prefix" },
     nodeChanged: true,
-    dnsPlan: { changed: true, rollbackSteps: [{ type: "upsert", host: "alpha.proxy.example", cnameTarget: "old.target.example" }] }
+    dnsPlan: {
+      changed: true,
+      rollbackSteps: [
+        { type: "upsert", host: "alpha.proxy.example", cnameTarget: "old.target.example" },
+      ],
+    },
   };
   const originalPersistHostPrefixDnsSyncPlan = kernel.persistHostPrefixDnsSyncPlan;
   kernel.persistHostPrefixDnsSyncPlan = async () => {
@@ -3975,26 +4748,29 @@ test("node rollback restores KV even when DNS compensation fails", async () => {
     await assert.rejects(
       kernel.rollbackPreparedNodeMutations([mutation], {
         kv,
-        config: { cfZoneId: "zone-id", cfApiToken: "api-token" }
+        config: { cfZoneId: "zone-id", cfApiToken: "api-token" },
       }),
-      /dns:dns_rollback_failed/
+      /dns:dns_rollback_failed/,
     );
   } finally {
     kernel.persistHostPrefixDnsSyncPlan = originalPersistHostPrefixDnsSyncPlan;
   }
 
-  assert.equal(JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).target, "https://old-origin.test");
+  assert.equal(
+    JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)).target,
+    "https://old-origin.test",
+  );
 });
 
 test("active rename mutation rolls back a partial KV write", async () => {
   const previousNode = { target: "https://old-origin.test", entryMode: "kv_route" };
   const nextNode = { target: "https://new-origin.test", entryMode: "kv_route" };
   const { kv, storedValues } = createInMemoryKvStore({
-    [`${kernel.PREFIX}alpha`]: previousNode
+    [`${kernel.PREFIX}alpha`]: previousNode,
   });
   const originalDelete = kv.delete;
   let deleteFailurePending = true;
-  kv.delete = async key => {
+  kv.delete = async (key) => {
     if (key === `${kernel.PREFIX}alpha` && deleteFailurePending) {
       deleteFailurePending = false;
       throw new Error("rename_delete_failed");
@@ -4003,17 +4779,23 @@ test("active rename mutation rolls back a partial KV write", async () => {
   };
 
   await assert.rejects(
-    kernel.applyPreparedNodeMutations([{
-      previousName: "alpha",
-      previousNode,
-      nextName: "beta",
-      nextNode,
-      nodeChanged: true,
-      dnsPlan: null
-    }], { kv }),
-    error => error?.message === "rename_delete_failed"
-      && error?.details?.rollbackAttempted === true
-      && error?.details?.rollbackSucceeded === true
+    kernel.applyPreparedNodeMutations(
+      [
+        {
+          previousName: "alpha",
+          previousNode,
+          nextName: "beta",
+          nextNode,
+          nodeChanged: true,
+          dnsPlan: null,
+        },
+      ],
+      { kv },
+    ),
+    (error) =>
+      error?.message === "rename_delete_failed" &&
+      error?.details?.rollbackAttempted === true &&
+      error?.details?.rollbackSucceeded === true,
   );
 
   assert.deepEqual(JSON.parse(storedValues.get(`${kernel.PREFIX}alpha`)), previousNode);
@@ -4024,28 +4806,30 @@ test("full import restores inherited host-prefix DNS after a node index rebuild 
   const previousConfig = {
     cfZoneId: "zone-id",
     cfApiToken: "api-token",
-    defaultHostPrefixCnameTarget: "old.target.example"
+    defaultHostPrefixCnameTarget: "old.target.example",
   };
   const previousNode = {
     target: "https://old-origin.test",
-    entryMode: "host_prefix"
+    entryMode: "host_prefix",
   };
   const { kv, storedValues } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: previousConfig,
-    [`${kernel.PREFIX}alpha`]: previousNode
+    [`${kernel.PREFIX}alpha`]: previousNode,
   });
-  const dns = createCloudflareDnsFetch([{
-    id: "cname-1",
-    name: "alpha.proxy.example",
-    type: "CNAME",
-    content: "old.target.example",
-    ttl: 1,
-    proxied: false
-  }]);
+  const dns = createCloudflareDnsFetch([
+    {
+      id: "cname-1",
+      name: "alpha.proxy.example",
+      type: "CNAME",
+      content: "old.target.example",
+      ttl: 1,
+      proxied: false,
+    },
+  ]);
   const env = {
     ENI_KV: kv,
     HOST: "proxy.example",
-    __CONFIG_CACHE_NAMESPACE: "full-import-node-rebuild-rollback"
+    __CONFIG_CACHE_NAMESPACE: "full-import-node-rebuild-rollback",
   };
   const originalRebuildNodeIndexesFromKv = kernel.rebuildNodeIndexesFromKv;
   let rebuildCount = 0;
@@ -4059,20 +4843,26 @@ test("full import restores inherited host-prefix DNS after a node index rebuild 
   try {
     await withWorkerGlobals({ fetch: dns.fetch }, async () => {
       await assert.rejects(
-        adminActions.importFull({
-          config: {
-            ...previousConfig,
-            defaultHostPrefixCnameTarget: "new.target.example"
+        adminActions.importFull(
+          {
+            config: {
+              ...previousConfig,
+              defaultHostPrefixCnameTarget: "new.target.example",
+            },
+            nodes: [
+              {
+                name: "alpha",
+                target: "https://new-origin.test",
+                entryMode: "kv_route",
+              },
+            ],
           },
-          nodes: [{
-            name: "alpha",
-            target: "https://new-origin.test",
-            entryMode: "kv_route"
-          }]
-        }, { env, ctx: null, kv }),
-        error => error?.message === "node_index_rebuild_failed"
-          && error?.details?.nodeRollbackError === ""
-          && error?.details?.configRollbackError === ""
+          { env, ctx: null, kv },
+        ),
+        (error) =>
+          error?.message === "node_index_rebuild_failed" &&
+          error?.details?.nodeRollbackError === "" &&
+          error?.details?.configRollbackError === "",
       );
     });
 
@@ -4081,13 +4871,15 @@ test("full import restores inherited host-prefix DNS after a node index rebuild 
     assert.equal(restoredConfig.defaultHostPrefixCnameTarget, "old.target.example");
     assert.equal(restoredNode.entryMode, "host_prefix");
     assert.equal(restoredNode.target, "https://old-origin.test:443");
-    assert.deepEqual(getComparableDnsRecords(dns.records), [{
-      name: "alpha.proxy.example",
-      type: "CNAME",
-      content: "old.target.example",
-      ttl: 1,
-      proxied: false
-    }]);
+    assert.deepEqual(getComparableDnsRecords(dns.records), [
+      {
+        name: "alpha.proxy.example",
+        type: "CNAME",
+        content: "old.target.example",
+        ttl: 1,
+        proxied: false,
+      },
+    ]);
   } finally {
     kernel.rebuildNodeIndexesFromKv = originalRebuildNodeIndexesFromKv;
     invalidateRuntimeConfigCache();
@@ -4108,7 +4900,7 @@ test("node revision refresh coalesces and hot node reads stay in memory", async 
       revisionReadStarted.resolve();
       await revisionGate.promise;
       return { revision: "nodes-r1" };
-    }
+    },
   };
 
   const firstRevision = kernel.getNodesRevision(kv);
@@ -4121,7 +4913,7 @@ test("node revision refresh coalesces and hot node reads stay in memory", async 
   isolateState.NodeCache.set("alpha", {
     data: { target: "https://origin.test" },
     exp: Date.now() + 60000,
-    nodesRevision: "nodes-r1"
+    nodesRevision: "nodes-r1",
   });
   const cachedNode = await kernel.getNode("alpha", { ENI_KV: kv }, null);
   assert.equal(cachedNode.target, "https://origin.test");
@@ -4134,15 +4926,19 @@ test("oversized legacy nodes remain readable but bypass node and playback hot ca
   const oversizedNode = {
     target: "https://origin.test",
     lines: [{ id: "line-1", name: "Primary", target: "https://origin.test" }],
-    remark: "界".repeat(1400)
+    remark: "界".repeat(1400),
   };
   const { kv, putKeys } = createInMemoryKvStore({
-    [`${kernel.PREFIX}alpha`]: oversizedNode
+    [`${kernel.PREFIX}alpha`]: oversizedNode,
   });
   const state = getNodeBindingCacheState(kv);
   const waitUntilTasks = [];
   const env = { ENI_KV: kv };
-  const ctx = { waitUntil(task) { waitUntilTasks.push(task); } };
+  const ctx = {
+    waitUntil(task) {
+      waitUntilTasks.push(task);
+    },
+  };
 
   const first = await kernel.getNode("alpha", env, ctx);
   const second = await kernel.getNodeForRead("alpha", env);
@@ -4156,7 +4952,10 @@ test("oversized legacy nodes remain readable but bypass node and playback hot ca
 
   const summary = kernel.normalizeNodeSummaryPayload("alpha", {
     ...first,
-    lines: Array.from({ length: 40 }, (_, index) => ({ id: `line-${index}`, target: `https://origin-${index}.test` }))
+    lines: Array.from({ length: 40 }, (_, index) => ({
+      id: `line-${index}`,
+      target: `https://origin-${index}.test`,
+    })),
   });
   assert.equal(summary.lines.length, 32);
 });
@@ -4171,7 +4970,7 @@ test("node revision read failures are retried instead of negative-cached", async
       revisionReadCount += 1;
       if (revisionReadCount === 1) throw new Error("transient revision failure");
       return { revision: "nodes-r2" };
-    }
+    },
   };
 
   assert.equal(await kernel.getNodesRevision(kv), "");
@@ -4184,7 +4983,7 @@ test("node revision read failures are retried instead of negative-cached", async
 test("node writes prevent older positive and negative reads from refilling memory", async () => {
   for (const [nodeName, storedNode] of [
     ["stale-positive", { target: "https://old-origin.test" }],
-    ["stale-negative", null]
+    ["stale-negative", null],
   ]) {
     isolateState.NodeCache.clear();
     invalidateNodesRevisionCache();
@@ -4198,7 +4997,7 @@ test("node writes prevent older positive and negative reads from refilling memor
           return storedNode;
         }
         throw new Error(`unexpected KV read: ${key}`);
-      }
+      },
     };
 
     const staleRead = kernel.getNode(nodeName, { ENI_KV: kv }, null);
@@ -4227,7 +5026,7 @@ test("evicted node generations cannot revive an older cold read", async () => {
       }
       if (key === kernel.NODES_INDEX_META_KEY) return { revision: "nodes-r1" };
       throw new Error(`unexpected KV read: ${key}`);
-    }
+    },
   };
   const database = { ...kernel };
   database.upsertNodeSummaryEntry = async () => null;
@@ -4236,7 +5035,7 @@ test("evicted node generations cannot revive an older cold read", async () => {
   await entityReadStarted.promise;
   database.invalidateNodeCaches([
     "alpha",
-    ...Array.from({ length: 5000 }, (_, index) => `generation-churn-${index}`)
+    ...Array.from({ length: 5000 }, (_, index) => `generation-churn-${index}`),
   ]);
   assert.equal(isolateState.NodeCacheGenerations.has("alpha"), false);
   entityReadGate.resolve();
@@ -4267,7 +5066,7 @@ test("unrelated node invalidation does not cancel another node's cold read", asy
       if (key === kernel.NODES_INDEX_META_KEY) return { revision: "nodes-r1" };
       throw new Error(`unexpected KV read: ${key}`);
     },
-    async put() {}
+    async put() {},
   };
   const nodeOperations = { ...kernel };
   Object.assign(nodeOperations, defineNodeRepositoryMethods({}, nodeOperations));
@@ -4302,7 +5101,7 @@ test("stale node-summary reads cannot refill invalidated list caches", async () 
       summaryReadStarted.resolve();
       await summaryReadGate.promise;
       return [alphaSummary];
-    }
+    },
   };
 
   const staleRead = kernel.getNodesSummaryIndex(kv, { useCache: false });
@@ -4311,7 +5110,10 @@ test("stale node-summary reads cannot refill invalidated list caches", async () 
   summaryReadGate.resolve();
 
   const summaries = await staleRead;
-  assert.deepEqual(summaries.map(node => node.name), ["alpha"]);
+  assert.deepEqual(
+    summaries.map((node) => node.name),
+    ["alpha"],
+  );
   assert.equal(isolateState.NodesListCache, null);
   assert.equal(isolateState.NodesIndexCache, null);
   invalidateNodesRevisionCache();
@@ -4336,7 +5138,7 @@ test("node-index mutations serialize so final KV and memory revisions match", as
         await oldWriteGate.promise;
       }
       storedValues.set(key, value);
-    }
+    },
   };
   const database = { ...kernel };
   database.readRevisionMeta = async () => ({
@@ -4345,7 +5147,7 @@ test("node-index mutations serialize so final KV and memory revisions match", as
     hash: "",
     count: 0,
     indexHash: "",
-    fullIndexHash: ""
+    fullIndexHash: "",
   });
 
   const oldMutation = database.persistNodesIndex(["old"], { kv });
@@ -4360,7 +5162,7 @@ test("node-index mutations serialize so final KV and memory revisions match", as
     kernel.NODES_INDEX_KEY,
     kernel.NODES_INDEX_META_KEY,
     kernel.NODES_INDEX_KEY,
-    kernel.NODES_INDEX_META_KEY
+    kernel.NODES_INDEX_META_KEY,
   ]);
   assert.deepEqual(JSON.parse(storedValues.get(kernel.NODES_INDEX_KEY)), ["fresh"]);
   const storedMeta = JSON.parse(storedValues.get(kernel.NODES_INDEX_META_KEY));
@@ -4379,9 +5181,14 @@ test("concurrent node-summary upserts merge inside the mutation chain", async ()
   invalidateNodesRevisionCache();
   const storedValues = new Map([
     [kernel.NODES_SUMMARY_INDEX_KEY, JSON.stringify([])],
-    [kernel.NODES_INDEX_META_KEY, JSON.stringify(kernel.buildNodesIndexMeta([], [], {
-      updatedAt: "2026-07-01T00:00:00.000Z"
-    }))]
+    [
+      kernel.NODES_INDEX_META_KEY,
+      JSON.stringify(
+        kernel.buildNodesIndexMeta([], [], {
+          updatedAt: "2026-07-01T00:00:00.000Z",
+        }),
+      ),
+    ],
   ]);
   const kv = {
     async get(key, options = {}) {
@@ -4391,18 +5198,23 @@ test("concurrent node-summary upserts merge inside the mutation chain", async ()
     },
     async put(key, value) {
       storedValues.set(key, value);
-    }
+    },
   };
 
   const [alpha, beta] = await Promise.all([
     kernel.upsertNodeSummaryEntry("alpha", { target: "https://alpha-origin.test" }, { kv }),
-    kernel.upsertNodeSummaryEntry("beta", { target: "https://beta-origin.test" }, { kv })
+    kernel.upsertNodeSummaryEntry("beta", { target: "https://beta-origin.test" }, { kv }),
   ]);
 
   assert.deepEqual([alpha.name, beta.name], ["alpha", "beta"]);
-  const storedNames = JSON.parse(storedValues.get(kernel.NODES_SUMMARY_INDEX_KEY)).map(node => node.name);
+  const storedNames = JSON.parse(storedValues.get(kernel.NODES_SUMMARY_INDEX_KEY)).map(
+    (node) => node.name,
+  );
   assert.deepEqual(storedNames, ["alpha", "beta"]);
-  assert.deepEqual(isolateState.NodesListCache?.data.map(node => node.name), ["alpha", "beta"]);
+  assert.deepEqual(
+    isolateState.NodesListCache?.data.map((node) => node.name),
+    ["alpha", "beta"],
+  );
   isolateState.NodeIndexMutationChain = Promise.resolve();
   isolateState.NodesListCache = null;
   isolateState.NodesIndexCache = null;
@@ -4419,9 +5231,14 @@ test("node-index rebuilds serialize entity loading with their commit", async () 
   const storedValues = new Map([
     [`${kernel.PREFIX}alpha`, JSON.stringify({ target: "https://alpha-origin.test" })],
     [kernel.NODES_SUMMARY_INDEX_KEY, JSON.stringify([])],
-    [kernel.NODES_INDEX_META_KEY, JSON.stringify(kernel.buildNodesIndexMeta([], [], {
-      updatedAt: "2026-07-01T00:00:00.000Z"
-    }))]
+    [
+      kernel.NODES_INDEX_META_KEY,
+      JSON.stringify(
+        kernel.buildNodesIndexMeta([], [], {
+          updatedAt: "2026-07-01T00:00:00.000Z",
+        }),
+      ),
+    ],
   ]);
   let listCount = 0;
   const kv = {
@@ -4436,14 +5253,14 @@ test("node-index rebuilds serialize entity loading with their commit", async () 
     async list({ prefix }) {
       listCount += 1;
       const keys = [...storedValues.keys()]
-        .filter(key => key.startsWith(prefix))
-        .map(name => ({ name }));
+        .filter((key) => key.startsWith(prefix))
+        .map((name) => ({ name }));
       if (listCount === 1) {
         firstListStarted.resolve();
         await firstListGate.promise;
       }
       return { keys, list_complete: true };
-    }
+    },
   };
 
   const olderRebuild = kernel.rebuildNodeIndexesFromKv(kv);
@@ -4456,7 +5273,9 @@ test("node-index rebuilds serialize entity loading with their commit", async () 
   const [olderState, fresherState] = await Promise.all([olderRebuild, fresherRebuild]);
   assert.deepEqual(olderState.index, ["alpha"]);
   assert.deepEqual(fresherState.index, ["alpha", "beta"]);
-  const storedNames = JSON.parse(storedValues.get(kernel.NODES_SUMMARY_INDEX_KEY)).map(node => node.name);
+  const storedNames = JSON.parse(storedValues.get(kernel.NODES_SUMMARY_INDEX_KEY)).map(
+    (node) => node.name,
+  );
   assert.deepEqual(storedNames, ["alpha", "beta"]);
   isolateState.NodeIndexMutationChain = Promise.resolve();
   isolateState.NodesListCache = null;
@@ -4483,23 +5302,26 @@ test("node-index writes reject incomplete entity truth-source reads", async () =
       },
       async list() {
         return {
-          keys: [
-            { name: `${kernel.PREFIX}alpha` },
-            { name: `${kernel.PREFIX}beta` }
-          ],
-          list_complete: true
+          keys: [{ name: `${kernel.PREFIX}alpha` }, { name: `${kernel.PREFIX}beta` }],
+          list_complete: true,
         };
-      }
+      },
     };
 
-    await assert.rejects(operation(kv), error => error?.code === "KV_READ_FAILED");
+    await assert.rejects(operation(kv), (error) => error?.code === "KV_READ_FAILED");
     assert.deepEqual(writes, []);
   };
 
-  await runRejectedWrite(kv => kernel.rebuildNodeIndexesFromKv(kv));
-  await runRejectedWrite(kv => kernel.upsertNodeSummaryEntry("gamma", {
-    target: "https://gamma-origin.test"
-  }, { kv }));
+  await runRejectedWrite((kv) => kernel.rebuildNodeIndexesFromKv(kv));
+  await runRejectedWrite((kv) =>
+    kernel.upsertNodeSummaryEntry(
+      "gamma",
+      {
+        target: "https://gamma-origin.test",
+      },
+      { kv },
+    ),
+  );
   isolateState.NodeIndexMutationChain = Promise.resolve();
   isolateState.NodesListCache = null;
   isolateState.NodesIndexCache = null;
@@ -4520,16 +5342,20 @@ test("stale revision candidates cannot overwrite current node-index metadata", a
     },
     async put(key, value) {
       storedValues.set(key, value);
-    }
+    },
   };
-  const freshSummary = kernel.buildNodeSummary("fresh", { target: "https://fresh-origin.test" }).summary;
-  const staleSummary = kernel.buildNodeSummary("stale", { target: "https://stale-origin.test" }).summary;
+  const freshSummary = kernel.buildNodeSummary("fresh", {
+    target: "https://fresh-origin.test",
+  }).summary;
+  const staleSummary = kernel.buildNodeSummary("stale", {
+    target: "https://stale-origin.test",
+  }).summary;
   await kernel.persistNodesSummaryIndex([freshSummary], { kv });
   const freshMeta = JSON.parse(storedValues.get(kernel.NODES_INDEX_META_KEY));
 
   const ensuredMeta = await kernel.ensureNodesIndexMeta(kv, {
     index: ["stale"],
-    nodes: [staleSummary]
+    nodes: [staleSummary],
   });
 
   const storedMeta = JSON.parse(storedValues.get(kernel.NODES_INDEX_META_KEY));
@@ -4561,19 +5387,24 @@ test("concurrent proxy cold reads share one node entity load", async () => {
       if (key === kernel.NODES_INDEX_META_KEY) return { revision: "nodes-r1" };
       throw new Error(`unexpected KV read: ${key}`);
     },
-    async put() {}
+    async put() {},
   };
   const nodeOperations = { ...kernel };
   Object.assign(nodeOperations, defineNodeRepositoryMethods({}, nodeOperations));
   nodeOperations.upsertNodeSummaryEntry = async () => null;
 
-  const coldReads = Array.from({ length: 10 }, () => nodeOperations.getNode("alpha", { ENI_KV: kv }, null));
+  const coldReads = Array.from({ length: 10 }, () =>
+    nodeOperations.getNode("alpha", { ENI_KV: kv }, null),
+  );
   await entityReadStarted.promise;
   assert.equal(entityReadCount, 1);
   entityReadGate.resolve();
 
   const nodes = await Promise.all(coldReads);
-  assert.equal(nodes.every(node => new URL(node.target).hostname === "origin.test"), true);
+  assert.equal(
+    nodes.every((node) => new URL(node.target).hostname === "origin.test"),
+    true,
+  );
   assert.equal(entityReadCount, 1);
   isolateState.SingleFlightTasks.clear();
   isolateState.NodeCache.clear();
@@ -4600,9 +5431,9 @@ test("node entity and summary caches are isolated by KV binding", async () => {
           if (key === kernel.NODES_INDEX_META_KEY) return { revision: `${nodeName}-revision` };
           return null;
         },
-        async put() {}
+        async put() {},
       },
-      reads: () => ({ entityReads, summaryReads })
+      reads: () => ({ entityReads, summaryReads }),
     };
   };
   const first = createKv("alpha", "https://first-origin.test");
@@ -4618,8 +5449,14 @@ test("node entity and summary caches are isolated by KV binding", async () => {
   assert.equal(first.reads().entityReads, 1);
   assert.equal(second.reads().entityReads, 1);
 
-  assert.deepEqual((await nodeOperations.getNodesSummaryIndex(first.kv)).map(node => node.name), ["alpha"]);
-  assert.deepEqual((await nodeOperations.getNodesSummaryIndex(second.kv)).map(node => node.name), ["alpha"]);
+  assert.deepEqual(
+    (await nodeOperations.getNodesSummaryIndex(first.kv)).map((node) => node.name),
+    ["alpha"],
+  );
+  assert.deepEqual(
+    (await nodeOperations.getNodesSummaryIndex(second.kv)).map((node) => node.name),
+    ["alpha"],
+  );
   assert.equal(first.reads().summaryReads, 1);
   assert.equal(second.reads().summaryReads, 1);
   assert.notEqual(getNodeBindingCacheState(first.kv), getNodeBindingCacheState(second.kv));
@@ -4650,14 +5487,14 @@ test("access-log queues remain isolated by D1 binding", () => {
     nodeName: "first",
     requestPath: "/System/Info",
     requestMethod: "GET",
-    statusCode: 500
+    statusCode: 500,
   });
   testPlatform.fetch.logger.record({ DB: secondDb }, context, {
     runtimeConfig: config,
     nodeName: "second",
     requestPath: "/System/Ping",
     requestMethod: "GET",
-    statusCode: 500
+    statusCode: 500,
   });
 
   assert.equal(firstState.LogQueue.length, 1);
@@ -4671,8 +5508,22 @@ test("log config fallback reads the matching KV binding cache", async () => {
   const firstDb = {};
   const secondDb = {};
   const context = { waitUntil() {} };
-  const firstEnv = { DB: firstDb, ENI_KV: { async get() { return { logEnabled: false }; } } };
-  const secondEnv = { DB: secondDb, ENI_KV: { async get() { return { logEnabled: true, logWriteDelayMinutes: 5 }; } } };
+  const firstEnv = {
+    DB: firstDb,
+    ENI_KV: {
+      async get() {
+        return { logEnabled: false };
+      },
+    },
+  };
+  const secondEnv = {
+    DB: secondDb,
+    ENI_KV: {
+      async get() {
+        return { logEnabled: true, logWriteDelayMinutes: 5 };
+      },
+    },
+  };
   await getRuntimeConfig(firstEnv);
   await getRuntimeConfig(secondEnv);
 
@@ -4684,13 +5535,13 @@ test("log config fallback reads the matching KV binding cache", async () => {
     nodeName: "first",
     requestPath: "/System/Info",
     requestMethod: "GET",
-    statusCode: 500
+    statusCode: 500,
   });
   testPlatform.fetch.logger.record(secondEnv, context, {
     nodeName: "second",
     requestPath: "/System/Info",
     requestMethod: "GET",
-    statusCode: 500
+    statusCode: 500,
   });
 
   assert.equal(firstState.LogQueue.length, 0);
@@ -4704,7 +5555,7 @@ test("incremental cleanup removes expired playback route snapshots", () => {
   const state = getNodeBindingCacheState(kv);
   state.PlaybackRouteHotCache.set("stale", {
     nodeName: "stale",
-    expiresAt: Date.now() - 1
+    expiresAt: Date.now() - 1,
   });
   isolateState.CleanupState.phase = 1;
   isolateState.CleanupState.lastRunAt = 0;
@@ -4749,7 +5600,7 @@ test("proxy node misses use the short-lived node cache", async () => {
       if (key === kernel.NODES_SUMMARY_INDEX_KEY) return [];
       if (key === kernel.NODES_INDEX_META_KEY) return { revision: "nodes-r1" };
       throw new Error(`unexpected KV read: ${key}`);
-    }
+    },
   };
   const env = { ENI_KV: kv };
 
@@ -4783,7 +5634,7 @@ test("strict admin node reads bypass the proxy negative cache", async () => {
       if (key === kernel.NODES_SUMMARY_INDEX_KEY) return [];
       if (key === kernel.NODES_INDEX_META_KEY) return { revision: "nodes-r1" };
       throw new Error(`unexpected KV read: ${key}`);
-    }
+    },
   };
   const env = { ENI_KV: kv };
 
@@ -4811,9 +5662,16 @@ test("proxy preparation reuses the runtime config loaded by the entry route", as
     "/Items",
     "alpha",
     "",
-    { ENI_KV: { async get() { configReadCount += 1; return {}; } } },
+    {
+      ENI_KV: {
+        async get() {
+          configReadCount += 1;
+          return {};
+        },
+      },
+    },
     { waitUntil() {} },
-    { runtimeConfig }
+    { runtimeConfig },
   );
 
   assert.equal(execution.currentConfig, runtimeConfig);
@@ -4834,7 +5692,7 @@ test("proxy preparation clones request URLs only when playback parameters mutate
     "",
     {},
     ctx,
-    { requestUrl: plainUrl, runtimeConfig }
+    { requestUrl: plainUrl, runtimeConfig },
   );
   assert.equal(plainExecution.requestMethod, "GET");
   assert.equal(plainExecution.requestUrl, plainUrl);
@@ -4849,14 +5707,18 @@ test("proxy preparation clones request URLs only when playback parameters mutate
     "",
     {},
     ctx,
-    { requestUrl: fallbackUrl, runtimeConfig }
+    { requestUrl: fallbackUrl, runtimeConfig },
   );
   assert.notEqual(fallbackExecution.requestUrl, fallbackUrl);
   assert.equal(fallbackExecution.requestUrl.searchParams.has("__pb_abs"), false);
   assert.equal(fallbackUrl.searchParams.get("__pb_abs"), "1");
 
-  const relayTarget = Buffer.from("https://origin.test/Videos/1/stream", "utf8").toString("base64url");
-  const relayUrl = new URL(`https://worker.test/alpha/__playback-relay/Videos/1/stream?__pb_target=${relayTarget}&api_key=test`);
+  const relayTarget = Buffer.from("https://origin.test/Videos/1/stream", "utf8").toString(
+    "base64url",
+  );
+  const relayUrl = new URL(
+    `https://worker.test/alpha/__playback-relay/Videos/1/stream?__pb_target=${relayTarget}&api_key=test`,
+  );
   const relayExecution = await proxyService.prepareExecutionContext(
     new Request(relayUrl),
     node,
@@ -4865,7 +5727,7 @@ test("proxy preparation clones request URLs only when playback parameters mutate
     "",
     {},
     ctx,
-    { requestUrl: relayUrl, runtimeConfig }
+    { requestUrl: relayUrl, runtimeConfig },
   );
   assert.notEqual(relayExecution.requestUrl, relayUrl);
   assert.equal(relayExecution.requestUrl.searchParams.has("__pb_target"), false);
@@ -4875,29 +5737,38 @@ test("proxy preparation clones request URLs only when playback parameters mutate
 test("proxy metadata preparation rekeys identity and cache TTL", async () => {
   const node = { target: "https://origin.test" };
   const ctx = { waitUntil() {} };
-  const buildExecution = (token, cacheTtlImages) => proxyService.prepareExecutionContext(
-    new Request(`https://worker.test/alpha/Items/1/Images/Primary?api_key=${encodeURIComponent(token)}&tag=v1`),
-    node,
-    "/Items/1/Images/Primary",
-    "alpha",
-    "node-key",
-    {},
-    ctx,
-    { runtimeConfig: { rateLimitRpm: 0, cacheTtlImages } }
-  );
+  const buildExecution = (token, cacheTtlImages) =>
+    proxyService.prepareExecutionContext(
+      new Request(
+        `https://worker.test/alpha/Items/1/Images/Primary?api_key=${encodeURIComponent(token)}&tag=v1`,
+      ),
+      node,
+      "/Items/1/Images/Primary",
+      "alpha",
+      "node-key",
+      {},
+      ctx,
+      { runtimeConfig: { rateLimitRpm: 0, cacheTtlImages } },
+    );
 
   const [firstIdentity, secondIdentity, disabledCache] = await Promise.all([
     buildExecution("secret-a", 30),
     buildExecution("secret-b", 30),
-    buildExecution("secret-a", 0)
+    buildExecution("secret-a", 0),
   ]);
 
   assert.ok(firstIdentity.metadataCacheKey instanceof Request);
   assert.notEqual(firstIdentity.metadataCacheKey.url, secondIdentity.metadataCacheKey.url);
   assert.notEqual(firstIdentity.metadataCacheKey.url, disabledCache.metadataCacheKey.url);
   assert.doesNotMatch(firstIdentity.metadataCacheKey.url, /secret-a/);
-  assert.notEqual(firstIdentity.metadataCacheIdentityPartition, secondIdentity.metadataCacheIdentityPartition);
-  assert.notEqual(firstIdentity.metadataCachePolicyRevision, disabledCache.metadataCachePolicyRevision);
+  assert.notEqual(
+    firstIdentity.metadataCacheIdentityPartition,
+    secondIdentity.metadataCacheIdentityPartition,
+  );
+  assert.notEqual(
+    firstIdentity.metadataCachePolicyRevision,
+    disabledCache.metadataCachePolicyRevision,
+  );
 });
 
 test("canonical OpsStatus read merges partition, root, shadow, and latest updatedAt", async () => {
@@ -4908,14 +5779,14 @@ test("canonical OpsStatus read merges partition, root, shadow, and latest update
       status: "root",
       rootOnly: true,
       nested: { fromRoot: true },
-      updatedAt: "2026-07-02T00:00:00.000Z"
-    }
+      updatedAt: "2026-07-02T00:00:00.000Z",
+    },
   };
   const partitionStatus = {
     status: "partition",
     partitionOnly: true,
     nested: { fromPartition: true },
-    updatedAt: "2026-07-03T00:00:00.000Z"
+    updatedAt: "2026-07-03T00:00:00.000Z",
   };
   isolateState.OpsStatusShadowCache.set(db, {
     pendingPatch: {
@@ -4923,10 +5794,10 @@ test("canonical OpsStatus read merges partition, root, shadow, and latest update
         status: "shadow",
         shadowOnly: true,
         nested: { fromShadow: true },
-        updatedAt: "2026-07-04T00:00:00.000Z"
-      }
+        updatedAt: "2026-07-04T00:00:00.000Z",
+      },
     },
-    flushPromise: null
+    flushPromise: null,
   });
 
   const database = createStatusTestService(db);
@@ -4945,7 +5816,7 @@ test("canonical OpsStatus read merges partition, root, shadow, and latest update
   assert.deepEqual(status.log.nested, {
     fromPartition: true,
     fromRoot: true,
-    fromShadow: true
+    fromShadow: true,
   });
   assert.equal(status.log.updatedAt, "2026-07-04T00:00:00.000Z");
   assert.equal(status.updatedAt, "2026-07-04T00:00:00.000Z");
@@ -4965,7 +5836,7 @@ test("full OpsStatus reads the root and each section exactly once", async () => 
     [kernel.OPS_STATUS_DB_SCOPE_ROOT]: 1,
     [kernel.OPS_STATUS_SECTION_SCOPES.log]: 1,
     [kernel.OPS_STATUS_SECTION_SCOPES.scheduled]: 1,
-    [kernel.OPS_STATUS_SECTION_SCOPES.dnsIpPool]: 1
+    [kernel.OPS_STATUS_SECTION_SCOPES.dnsIpPool]: 1,
   });
 });
 
@@ -4982,160 +5853,185 @@ test("admin HTML MIME acceptance remains limited to document-capable responses",
 
 test("fresh remote shell rejects a wrong MIME even when the body is HTML", async () => {
   const html = '<!doctype html><html><body><div id="app"></div></body></html>';
-  await withWorkerGlobals({
-    fetch: async () => new Response(html, {
-      headers: { "Content-Type": "application/json" }
-    })
-  }, async () => {
-    await assert.rejects(
-      fetchAdminRemoteShellStoredResponse(
-        "https://example.test/index.html",
-        { adminPath: "/admin" },
-        { ok: true, missing: [] }
-      ),
-      /content-type invalid/
-    );
-  });
-});
-
-test("fresh remote shell rejects an HTML document without the app root", async () => {
-  let html = "";
-  await withWorkerGlobals({
-    fetch: async () => new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" }
-    })
-  }, async () => {
-    const invalidDocuments = [
-      "<!doctype html><html><body><main>missing app root</main></body></html>",
-      '<!doctype html><html><body><main data-id="app"></main></body></html>',
-      '<!doctype html><html><body><script>const template = \'<div id="app"></div>\';</script></body></html>',
-      '<!doctype html><html><body><!-- <div id="app"></div> --></body></html>',
-      '<!doctype html><html><body><div title=" id=app "></div></body></html>',
-      '<!doctype html><html><body><div title=" id=\'app\' "></div></body></html>',
-      '<!doctype html><html><body><div id="App"></div></body></html>',
-      '<!doctype html><html><body><template><div id="app"></div></template></body></html>'
-    ];
-    for (const invalidDocument of invalidDocuments) {
-      html = invalidDocument;
+  await withWorkerGlobals(
+    {
+      fetch: async () =>
+        new Response(html, {
+          headers: { "Content-Type": "application/json" },
+        }),
+    },
+    async () => {
       await assert.rejects(
         fetchAdminRemoteShellStoredResponse(
           "https://example.test/index.html",
           { adminPath: "/admin" },
-          { ok: true, missing: [] }
+          { ok: true, missing: [] },
         ),
-        /missing #app root/
+        /content-type invalid/,
       );
-    }
-  });
+    },
+  );
+});
+
+test("fresh remote shell rejects an HTML document without the app root", async () => {
+  let html = "";
+  await withWorkerGlobals(
+    {
+      fetch: async () =>
+        new Response(html, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+    },
+    async () => {
+      const invalidDocuments = [
+        "<!doctype html><html><body><main>missing app root</main></body></html>",
+        '<!doctype html><html><body><main data-id="app"></main></body></html>',
+        "<!doctype html><html><body><script>const template = '<div id=\"app\"></div>';</script></body></html>",
+        '<!doctype html><html><body><!-- <div id="app"></div> --></body></html>',
+        '<!doctype html><html><body><div title=" id=app "></div></body></html>',
+        "<!doctype html><html><body><div title=\" id='app' \"></div></body></html>",
+        '<!doctype html><html><body><div id="App"></div></body></html>',
+        '<!doctype html><html><body><template><div id="app"></div></template></body></html>',
+      ];
+      for (const invalidDocument of invalidDocuments) {
+        html = invalidDocument;
+        await assert.rejects(
+          fetchAdminRemoteShellStoredResponse(
+            "https://example.test/index.html",
+            { adminPath: "/admin" },
+            { ok: true, missing: [] },
+          ),
+          /missing #app root/,
+        );
+      }
+    },
+  );
 });
 
 test("fresh remote shell recognizes only an exact app id attribute", async () => {
   let html = "";
-  await withWorkerGlobals({
-    fetch: async () => new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" }
-    })
-  }, async () => {
-    const validDocuments = [
-      '<!doctype html><html><body><div title=">"></div><main class="root" ID = \'app\'></main></body></html>',
-      '<!doctype html><html><body><div title="<script>"></div><div id="app"></div></body></html>'
-    ];
-    for (const validDocument of validDocuments) {
-      html = validDocument;
-      const payload = await fetchAdminRemoteShellStoredResponse(
-        "https://example.test/index.html",
-        { adminPath: "/admin" },
-        { ok: true, missing: [] }
-      );
-      assert.equal(payload.storedResponse.status, 200);
-    }
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async () =>
+        new Response(html, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+    },
+    async () => {
+      const validDocuments = [
+        '<!doctype html><html><body><div title=">"></div><main class="root" ID = \'app\'></main></body></html>',
+        '<!doctype html><html><body><div title="<script>"></div><div id="app"></div></body></html>',
+      ];
+      for (const validDocument of validDocuments) {
+        html = validDocument;
+        const payload = await fetchAdminRemoteShellStoredResponse(
+          "https://example.test/index.html",
+          { adminPath: "/admin" },
+          { ok: true, missing: [] },
+        );
+        assert.equal(payload.storedResponse.status, 200);
+      }
+    },
+  );
 });
 
 test("admin shell parsing rejects hidden markup and dynamic imports without recursive scanning", async () => {
   const hiddenAppRootDocuments = [
     '<!doctype html><html><body><!bogus <div id="app">></body></html>',
-    '<!doctype html><html><body><![CDATA[<div id="app"></div>]]></body></html>'
+    '<!doctype html><html><body><![CDATA[<div id="app"></div>]]></body></html>',
   ];
   for (const html of hiddenAppRootDocuments) assert.equal(hasAdminRemoteShellAppRoot(html), false);
 
   const dynamicImportExpression = 'x++ / import("https://evil.test/runtime.js") / y;';
-  assert.deepEqual(collectAdminInlineDynamicImports(dynamicImportExpression), [{
-    index: dynamicImportExpression.indexOf("import"),
-    reference: "import("
-  }]);
+  assert.deepEqual(collectAdminInlineDynamicImports(dynamicImportExpression), [
+    {
+      index: dynamicImportExpression.indexOf("import"),
+      reference: "import(",
+    },
+  ]);
   assert.deepEqual(collectAdminInlineDynamicImports("{".repeat(10000) + "}".repeat(10000)), []);
-  assert.ok(getAdminRemoteShellAssetPolicyViolations(
-    `<!doctype html><html><body><div id="app"></div><script>${dynamicImportExpression}</script></body></html>`,
-    "https://example.test/index.html"
-  ).some((violation) => violation.includes("inline")));
+  assert.ok(
+    getAdminRemoteShellAssetPolicyViolations(
+      `<!doctype html><html><body><div id="app"></div><script>${dynamicImportExpression}</script></body></html>`,
+      "https://example.test/index.html",
+    ).some((violation) => violation.includes("inline")),
+  );
 });
 
 test("fresh remote shell keeps the external asset policy boundary", async () => {
   let assetUrl = "";
-  await withWorkerGlobals({
-    fetch: async () => new Response(
-      `<!doctype html><html><body><div id="app"></div><script src="${assetUrl}"></script></body></html>`,
-      { headers: { "Content-Type": "text/html; charset=utf-8" } }
-    )
-  }, async () => {
-    const forbiddenAssetUrls = [
-      "/assets/app.js",
-      "https://esm.sh/vue@3/dist/vue.runtime.esm-browser.js",
-      "https://raw.githubusercontent.com/owner/repo/main/app.js",
-      "https://raw.githubusercontent.com./owner/repo/main/app.js",
-      "https://github.com/owner/repo/releases/download/v1.0.0/app.js",
-      "https://github.com/owner/repo/releases/download/v1.0.0/runtime",
-      "https://github.com./owner/repo/releases/download/v1.0.0/runtime",
-      "https://esm.sh./vue@3/dist/vue.runtime.esm-browser.js"
-    ];
-    for (const forbiddenAssetUrl of forbiddenAssetUrls) {
-      assetUrl = forbiddenAssetUrl;
+  await withWorkerGlobals(
+    {
+      fetch: async () =>
+        new Response(
+          `<!doctype html><html><body><div id="app"></div><script src="${assetUrl}"></script></body></html>`,
+          { headers: { "Content-Type": "text/html; charset=utf-8" } },
+        ),
+    },
+    async () => {
+      const forbiddenAssetUrls = [
+        "/assets/app.js",
+        "https://esm.sh/vue@3/dist/vue.runtime.esm-browser.js",
+        "https://raw.githubusercontent.com/owner/repo/main/app.js",
+        "https://raw.githubusercontent.com./owner/repo/main/app.js",
+        "https://github.com/owner/repo/releases/download/v1.0.0/app.js",
+        "https://github.com/owner/repo/releases/download/v1.0.0/runtime",
+        "https://github.com./owner/repo/releases/download/v1.0.0/runtime",
+        "https://esm.sh./vue@3/dist/vue.runtime.esm-browser.js",
+      ];
+      for (const forbiddenAssetUrl of forbiddenAssetUrls) {
+        assetUrl = forbiddenAssetUrl;
+        await assert.rejects(
+          fetchAdminRemoteShellStoredResponse(
+            "https://example.test/index.html",
+            { adminPath: "/admin" },
+            { ok: true, missing: [] },
+          ),
+          /asset policy invalid/,
+        );
+      }
+    },
+  );
+});
+
+test("remote shell rejects importmaps and rewrites semantic assets without extensions", async () => {
+  let html =
+    '<!doctype html><html><head><script type="importmap">{"imports":{}}</script></head><body><div id="app"></div></body></html>';
+  await withWorkerGlobals(
+    {
+      fetch: async () =>
+        new Response(html, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+    },
+    async () => {
       await assert.rejects(
         fetchAdminRemoteShellStoredResponse(
           "https://example.test/index.html",
           { adminPath: "/admin" },
-          { ok: true, missing: [] }
+          { ok: true, missing: [] },
         ),
-        /asset policy invalid/
+        /importmap/,
       );
-    }
-  });
-});
 
-test("remote shell rejects importmaps and rewrites semantic assets without extensions", async () => {
-  let html = '<!doctype html><html><head><script type="importmap">{"imports":{}}</script></head><body><div id="app"></div></body></html>';
-  await withWorkerGlobals({
-    fetch: async () => new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" }
-    })
-  }, async () => {
-    await assert.rejects(
-      fetchAdminRemoteShellStoredResponse(
-        "https://example.test/index.html",
-        { adminPath: "/admin" },
-        { ok: true, missing: [] }
-      ),
-      /importmap/
-    );
-
-    html = `<!doctype html><html><head>
+      html = `<!doctype html><html><head>
       <script src='https://cdn.tailwindcss.com'></script>
       <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.esm-browser.prod.js">
       <link rel="preload" as="style" href="https://cdn.jsdelivr.net/npm/example@1.0.0/theme">
     </head><body><div id="app"></div></body></html>`;
-    const payload = await fetchAdminRemoteShellStoredResponse(
-      "https://example.test/index.html",
-      { adminPath: "/admin" },
-      { ok: true, missing: [] },
-      null,
-      { adminPath: "/admin", releaseTag: "v1.0.0" }
-    );
-    const renderedHtml = await payload.storedResponse.text();
-    assert.equal(payload.vendorManifest.entries.length, 3);
-    assert.doesNotMatch(renderedHtml, /https:\/\/cdn\.tailwindcss\.com/);
-    assert.match(renderedHtml, /\/admin\/__release\/v1\.0\.0\/vendor\//);
-  });
+      const payload = await fetchAdminRemoteShellStoredResponse(
+        "https://example.test/index.html",
+        { adminPath: "/admin" },
+        { ok: true, missing: [] },
+        null,
+        { adminPath: "/admin", releaseTag: "v1.0.0" },
+      );
+      const renderedHtml = await payload.storedResponse.text();
+      assert.equal(payload.vendorManifest.entries.length, 3);
+      assert.doesNotMatch(renderedHtml, /https:\/\/cdn\.tailwindcss\.com/);
+      assert.match(renderedHtml, /\/admin\/__release\/v1\.0\.0\/vendor\//);
+    },
+  );
 });
 
 test("local index uploads use the remote shell policy and a content-addressed source", async () => {
@@ -5144,22 +6040,31 @@ test("local index uploads use the remote shell policy and a content-addressed so
     <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.esm-browser.prod.js">
   </head><body><div id="app"></div></body></html>`;
   const record = await buildAdminLocalIndexUploadRecord(validHtml, "C:\\exports\\index.html");
-  assert.match(record.sourceUrl, /^https:\/\/admin-local-index\.invalid\/[a-f0-9]{64}\/index\.html$/);
+  assert.match(
+    record.sourceUrl,
+    /^https:\/\/admin-local-index\.invalid\/[a-f0-9]{64}\/index\.html$/,
+  );
   assert.match(record.assetRevision, /^local-[a-f0-9]{64}$/);
   assert.equal(record.fileName, "index.html");
   assert.equal(record.manifest.entries.length, 2);
 
   await assert.rejects(
-    buildAdminLocalIndexUploadRecord('<!doctype html><html><body><div id="app"></div><script src="/assets/app.js"></script></body></html>'),
-    /asset policy invalid/
+    buildAdminLocalIndexUploadRecord(
+      '<!doctype html><html><body><div id="app"></div><script src="/assets/app.js"></script></body></html>',
+    ),
+    /asset policy invalid/,
   );
   await assert.rejects(
-    buildAdminLocalIndexUploadRecord('<!doctype html><html><head><script type="importmap">{}</script></head><body><div id="app"></div></body></html>'),
-    /asset policy invalid/
+    buildAdminLocalIndexUploadRecord(
+      '<!doctype html><html><head><script type="importmap">{}</script></head><body><div id="app"></div></body></html>',
+    ),
+    /asset policy invalid/,
   );
   await assert.rejects(
-    buildAdminLocalIndexUploadRecord('<!doctype html><html><body><div id="app"></div><script>void import("https://evil.test/runtime.js")</script></body></html>'),
-    /动态 import/
+    buildAdminLocalIndexUploadRecord(
+      '<!doctype html><html><body><div id="app"></div><script>void import("https://evil.test/runtime.js")</script></body></html>',
+    ),
+    /动态 import/,
   );
 });
 
@@ -5170,8 +6075,8 @@ test("admin index resolution ignores Release fields and environment INDEX_URL", 
       releaseRepo: "axuitomo/CF-EMBY-PROXY-UI",
       releaseBranch: "main",
       releaseTag: "v1.0.0",
-      indexUrl: "https://example.test/index.html"
-    }
+      indexUrl: "https://example.test/index.html",
+    },
   );
   assert.equal(resolved.indexUrl, "");
   assert.equal(resolved.indexUrlSource, "unset");
@@ -5187,12 +6092,12 @@ test("Worker and HTML update requires both uploaded files", async () => {
   const cases = [
     {
       workerFileName: "worker.js",
-      workerScriptContent: "export default { fetch() { return new Response('ok'); } }"
+      workerScriptContent: "export default { fetch() { return new Response('ok'); } }",
     },
     {
       indexFileName: "index.html",
-      indexHtml: validHtml
-    }
+      indexHtml: validHtml,
+    },
   ];
 
   for (const data of cases) {
@@ -5200,7 +6105,7 @@ test("Worker and HTML update requires both uploaded files", async () => {
       env,
       kv,
       ctx: null,
-      request: new Request("https://worker.test/admin")
+      request: new Request("https://worker.test/admin"),
     });
     const payload = await response.json();
     assert.equal(response.status, 400);
@@ -5213,50 +6118,67 @@ test("Worker and HTML update refuses a zone-level script that is not bound to th
     [kernel.CONFIG_KEY]: {
       cfAccountId: "account-id",
       cfZoneId: "zone-id",
-      cfApiToken: "api-token"
-    }
+      cfApiToken: "api-token",
+    },
   });
   const env = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "worker-html-current-host-required" };
   const requestedUrls = [];
   invalidateRuntimeConfigCache();
 
   try {
-    const response = await withWorkerGlobals({
-      fetch: async (input) => {
-        const url = String(input);
-        requestedUrls.push(url);
-        if (url.includes("/workers/domains")) {
-          return Response.json({
-            success: true,
-            result: [{ hostname: "sibling.example", service: "sibling-worker" }]
-          });
-        }
-        if (url.includes("/workers/routes")) {
-          return Response.json({
-            success: true,
-            result: [{ pattern: "sibling.example/*", script: "sibling-worker" }],
-            result_info: { total_pages: 1 }
-          });
-        }
-        throw new Error(`unexpected Cloudflare request: ${url}`);
-      }
-    }, () => adminActions.updateWorkerAndAdminIndex({
-      workerFileName: "worker.js",
-      workerScriptContent: "export default { fetch() { return new Response('current'); } }",
-      indexFileName: "index.html",
-      indexHtml: '<!doctype html><html><body><div id="app"></div></body></html>'
-    }, {
-      env,
-      kv,
-      ctx: null,
-      request: new Request("https://current.example/admin")
-    }));
+    const response = await withWorkerGlobals(
+      {
+        fetch: async (input) => {
+          const url = String(input);
+          requestedUrls.push(url);
+          if (url.includes("/workers/domains")) {
+            return Response.json({
+              success: true,
+              result: [{ hostname: "sibling.example", service: "sibling-worker" }],
+            });
+          }
+          if (url.includes("/workers/routes")) {
+            return Response.json({
+              success: true,
+              result: [{ pattern: "sibling.example/*", script: "sibling-worker" }],
+              result_info: { total_pages: 1 },
+            });
+          }
+          throw new Error(`unexpected Cloudflare request: ${url}`);
+        },
+      },
+      () =>
+        adminActions.updateWorkerAndAdminIndex(
+          {
+            workerFileName: "worker.js",
+            workerScriptContent: "export default { fetch() { return new Response('current'); } }",
+            indexFileName: "index.html",
+            indexHtml: '<!doctype html><html><body><div id="app"></div></body></html>',
+          },
+          {
+            env,
+            kv,
+            ctx: null,
+            request: new Request("https://current.example/admin"),
+          },
+        ),
+    );
     const payload = await response.json();
 
     assert.equal(response.status, 400);
     assert.equal(payload.error.code, "WORKER_PLACEMENT_SCRIPT_UNRESOLVED");
-    assert.equal(requestedUrls.some((url) => /workers\/domains\?(?:[^#]*&)?zone_id=zone-id(?:&|$)/.test(url) && !url.includes("hostname=current.example")), false);
-    assert.equal(requestedUrls.some((url) => url.includes("/workers/scripts/")), false);
+    assert.equal(
+      requestedUrls.some(
+        (url) =>
+          /workers\/domains\?(?:[^#]*&)?zone_id=zone-id(?:&|$)/.test(url) &&
+          !url.includes("hostname=current.example"),
+      ),
+      false,
+    );
+    assert.equal(
+      requestedUrls.some((url) => url.includes("/workers/scripts/")),
+      false,
+    );
     assert.deepEqual(putKeys, []);
   } finally {
     invalidateRuntimeConfigCache();
@@ -5268,51 +6190,60 @@ test("Worker and HTML update uploads only the script bound to the current host",
     [kernel.CONFIG_KEY]: {
       cfAccountId: "account-id",
       cfZoneId: "zone-id",
-      cfApiToken: "api-token"
-    }
+      cfApiToken: "api-token",
+    },
   });
   const env = { ENI_KV: kv, __CONFIG_CACHE_NAMESPACE: "worker-html-current-host-only" };
   const scriptUploads = [];
   invalidateRuntimeConfigCache();
 
   try {
-    const response = await withWorkerGlobals({
-      fetch: async (input, init = {}) => {
-        const url = String(input);
-        if (url.includes("/workers/domains")) {
-          return Response.json({
-            success: true,
-            result: [
-              { hostname: "sibling.example", service: "sibling-worker" },
-              { hostname: "current.example", service: "current-worker" }
-            ]
-          });
-        }
-        if (url.includes("/workers/scripts/")) {
-          scriptUploads.push({ url, method: init.method });
-          return Response.json({ success: true, result: {} });
-        }
-        throw new Error(`unexpected Cloudflare request: ${url}`);
-      }
-    }, () => adminActions.updateWorkerAndAdminIndex({
-      workerFileName: "worker.js",
-      workerScriptContent: "export default { fetch() { return new Response('current'); } }",
-      indexFileName: "index.html",
-      indexHtml: '<!doctype html><html><body><div id="app"></div></body></html>'
-    }, {
-      env,
-      kv,
-      ctx: null,
-      request: new Request("https://current.example/admin")
-    }));
+    const response = await withWorkerGlobals(
+      {
+        fetch: async (input, init = {}) => {
+          const url = String(input);
+          if (url.includes("/workers/domains")) {
+            return Response.json({
+              success: true,
+              result: [
+                { hostname: "sibling.example", service: "sibling-worker" },
+                { hostname: "current.example", service: "current-worker" },
+              ],
+            });
+          }
+          if (url.includes("/workers/scripts/")) {
+            scriptUploads.push({ url, method: init.method });
+            return Response.json({ success: true, result: {} });
+          }
+          throw new Error(`unexpected Cloudflare request: ${url}`);
+        },
+      },
+      () =>
+        adminActions.updateWorkerAndAdminIndex(
+          {
+            workerFileName: "worker.js",
+            workerScriptContent: "export default { fetch() { return new Response('current'); } }",
+            indexFileName: "index.html",
+            indexHtml: '<!doctype html><html><body><div id="app"></div></body></html>',
+          },
+          {
+            env,
+            kv,
+            ctx: null,
+            request: new Request("https://current.example/admin"),
+          },
+        ),
+    );
     const payload = await response.json();
 
     assert.equal(response.status, 200);
     assert.equal(payload.scriptName, "current-worker");
-    assert.deepEqual(scriptUploads, [{
-      url: "https://api.cloudflare.com/client/v4/accounts/account-id/workers/scripts/current-worker/content",
-      method: "PUT"
-    }]);
+    assert.deepEqual(scriptUploads, [
+      {
+        url: "https://api.cloudflare.com/client/v4/accounts/account-id/workers/scripts/current-worker/content",
+        method: "PUT",
+      },
+    ]);
   } finally {
     invalidateRuntimeConfigCache();
   }
@@ -5321,7 +6252,8 @@ test("Worker and HTML update uploads only the script bound to the current host",
 test("local index source persists in KV and renders through the same-origin vendor path", async () => {
   const { kv } = createInMemoryKvStore({ "sys:theme": {} });
   const env = { ADMIN_PATH: "/admin", ENI_KV: kv };
-  const html = '<!doctype html><html><head><script src="https://cdn.example.test/app.js"></script></head><body><div id="app"></div></body></html>';
+  const html =
+    '<!doctype html><html><head><script src="https://cdn.example.test/app.js"></script></head><body><div id="app"></div></body></html>';
   const record = await buildAdminLocalIndexUploadRecord(html, "index.html");
   const persisted = await kernel.persistAdminIndexUpload(record, { env, kv });
   const resolved = buildResolvedAdminIndexState({}, persisted.config);
@@ -5334,31 +6266,36 @@ test("local index source persists in KV and renders through the same-origin vend
     env,
     null,
     { ok: true, missing: [] },
-    persisted.config
+    persisted.config,
   );
   const rendered = await response.text();
   assert.equal(response.status, 200);
   assert.doesNotMatch(rendered, /https:\/\/cdn\.example\.test\/app\.js/);
   assert.match(rendered, new RegExp(`/admin/__release/${record.assetRevision}/vendor/`));
 
-  await withWorkerGlobals({
-    fetch: async (url) => {
-      assert.equal(url, "https://cdn.example.test/app.js");
-      return new Response("window.localVendorLoaded=true;", {
-        headers: { "Content-Type": "application/javascript" }
-      });
-    }
-  }, async () => {
-    const vendorResponse = await renderAdminReleaseVendorAsset(
-      new Request(`https://worker.test/admin/__release/${record.assetRevision}/vendor/${record.manifest.entries[0].assetKey}`),
-      env,
-      null,
-      { releaseTag: record.assetRevision, assetKey: record.manifest.entries[0].assetKey },
-      persisted.config
-    );
-    assert.equal(vendorResponse.status, 200);
-    assert.match(await vendorResponse.text(), /localVendorLoaded/);
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async (url) => {
+        assert.equal(url, "https://cdn.example.test/app.js");
+        return new Response("window.localVendorLoaded=true;", {
+          headers: { "Content-Type": "application/javascript" },
+        });
+      },
+    },
+    async () => {
+      const vendorResponse = await renderAdminReleaseVendorAsset(
+        new Request(
+          `https://worker.test/admin/__release/${record.assetRevision}/vendor/${record.manifest.entries[0].assetKey}`,
+        ),
+        env,
+        null,
+        { releaseTag: record.assetRevision, assetKey: record.manifest.entries[0].assetKey },
+        persisted.config,
+      );
+      assert.equal(vendorResponse.status, 200);
+      assert.match(await vendorResponse.text(), /localVendorLoaded/);
+    },
+  );
 });
 
 test("local index upload replaces a corrupted record under the same revision", async () => {
@@ -5367,16 +6304,16 @@ test("local index upload replaces a corrupted record under the same revision", a
   const uploadKey = kernel.buildAdminIndexUploadKey(record.revision);
   const corruptedRecord = {
     ...record,
-    html: '<!doctype html><html><body><div id="app">corrupted</div></body></html>'
+    html: '<!doctype html><html><body><div id="app">corrupted</div></body></html>',
   };
   const { kv, storedValues, putKeys } = createInMemoryKvStore({
     [kernel.CONFIG_KEY]: {},
-    [uploadKey]: corruptedRecord
+    [uploadKey]: corruptedRecord,
   });
   const env = {
     ADMIN_PATH: "/admin",
     ENI_KV: kv,
-    __CONFIG_CACHE_NAMESPACE: "local-index-corrupt-record"
+    __CONFIG_CACHE_NAMESPACE: "local-index-corrupt-record",
   };
   invalidateRuntimeConfigCache();
 
@@ -5390,42 +6327,70 @@ test("local index upload replaces a corrupted record under the same revision", a
 
 test("fresh remote shell enforces the byte limit after reading the body", async () => {
   const html = `<!doctype html><html><body><div id="app">${"x".repeat(2 * 1024 * 1024)}</div></body></html>`;
-  await withWorkerGlobals({
-    fetch: async () => new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8" }
-    })
-  }, async () => {
-    await assert.rejects(
-      fetchAdminRemoteShellStoredResponse(
-        "https://example.test/index.html",
-        { adminPath: "/admin" },
-        { ok: true, missing: [] }
-      ),
-      /payload invalid: \d+ bytes/
-    );
-  });
+  await withWorkerGlobals(
+    {
+      fetch: async () =>
+        new Response(html, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+    },
+    async () => {
+      await assert.rejects(
+        fetchAdminRemoteShellStoredResponse(
+          "https://example.test/index.html",
+          { adminPath: "/admin" },
+          { ok: true, missing: [] },
+        ),
+        /payload invalid: \d+ bytes/,
+      );
+    },
+  );
 });
 
 test("jsDelivr GitHub mutable-ref classifier distinguishes branches from immutable refs", () => {
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo/app.js"), true);
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net./gh/owner/repo/app.js"), true);
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@main/app.js"), true);
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@latest/app.js"), true);
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@1.2/app.js"), true);
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@abcdef0/app.js"), false);
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@v1.2.3-beta.1/app.js"), false);
-  assert.equal(isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/npm/vue@latest/dist/vue.js"), false);
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo/app.js"),
+    true,
+  );
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net./gh/owner/repo/app.js"),
+    true,
+  );
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@main/app.js"),
+    true,
+  );
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@latest/app.js"),
+    true,
+  );
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@1.2/app.js"),
+    true,
+  );
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@abcdef0/app.js"),
+    false,
+  );
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/gh/owner/repo@v1.2.3-beta.1/app.js"),
+    false,
+  );
+  assert.equal(
+    isMutableJsdelivrGithubAssetUrl("https://cdn.jsdelivr.net/npm/vue@latest/dist/vue.js"),
+    false,
+  );
 });
 
 test("mutable vendor assets bypass asset cache and return no-store", async () => {
   const upstreamUrl = "https://cdn.jsdelivr.net./gh/owner/repo/app.js";
   const indexRecord = await buildAdminLocalIndexUploadRecord(
     `<!doctype html><html><head><script src="${upstreamUrl}"></script></head><body><div id="app"></div></body></html>`,
-    "index.html"
+    "index.html",
   );
   const manifestEntry = indexRecord.manifest.entries[0];
   const { kv } = createInMemoryKvStore({
-    [kernel.buildAdminIndexUploadKey(indexRecord.revision)]: indexRecord
+    [kernel.buildAdminIndexUploadKey(indexRecord.revision)]: indexRecord,
   });
   const env = { ENI_KV: kv };
   const cacheReads = [];
@@ -5435,38 +6400,45 @@ test("mutable vendor assets bypass asset cache and return no-store", async () =>
       const url = new URL(request.url);
       cacheReads.push(url.hostname);
       if (url.hostname === "admin-release-vendor-manifest.invalid") {
-        return new Response(JSON.stringify({
-          ...indexRecord.manifest,
-          entries: [manifestEntry]
-        }));
+        return new Response(
+          JSON.stringify({
+            ...indexRecord.manifest,
+            entries: [manifestEntry],
+          }),
+        );
       }
       return null;
     },
     async put(request) {
       cacheWrites.push(new URL(request.url).hostname);
-    }
+    },
   };
 
-  await withWorkerGlobals({
-    caches: { default: edgeCache },
-    fetch: async (url) => {
-      assert.equal(url, upstreamUrl);
-      return new Response("window.mutableAssetLoaded=true;", {
-        headers: { "Content-Type": "application/javascript" }
-      });
-    }
-  }, async () => {
-    const response = await renderAdminReleaseVendorAsset(
-      new Request(`https://worker.test/admin/__release/${indexRecord.assetRevision}/vendor/${manifestEntry.assetKey}`),
-      env,
-      null,
-      { releaseTag: indexRecord.assetRevision, assetKey: manifestEntry.assetKey },
-      {}
-    );
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("Cache-Control"), "no-store, max-age=0");
-    assert.match(await response.text(), /mutableAssetLoaded/);
-  });
+  await withWorkerGlobals(
+    {
+      caches: { default: edgeCache },
+      fetch: async (url) => {
+        assert.equal(url, upstreamUrl);
+        return new Response("window.mutableAssetLoaded=true;", {
+          headers: { "Content-Type": "application/javascript" },
+        });
+      },
+    },
+    async () => {
+      const response = await renderAdminReleaseVendorAsset(
+        new Request(
+          `https://worker.test/admin/__release/${indexRecord.assetRevision}/vendor/${manifestEntry.assetKey}`,
+        ),
+        env,
+        null,
+        { releaseTag: indexRecord.assetRevision, assetKey: manifestEntry.assetKey },
+        {},
+      );
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Cache-Control"), "no-store, max-age=0");
+      assert.match(await response.text(), /mutableAssetLoaded/);
+    },
+  );
 
   assert.deepEqual(cacheReads, ["admin-release-vendor-manifest.invalid"]);
   assert.deepEqual(cacheWrites, []);
@@ -5476,11 +6448,11 @@ test("immutable vendor assets use asset cache and immutable browser policy", asy
   const upstreamUrl = "https://cdn.jsdelivr.net/gh/owner/repo@v1.2.3/app.js";
   const indexRecord = await buildAdminLocalIndexUploadRecord(
     `<!doctype html><html><head><script src="${upstreamUrl}"></script></head><body><div id="app"></div></body></html>`,
-    "index.html"
+    "index.html",
   );
   const manifestEntry = indexRecord.manifest.entries[0];
   const { kv } = createInMemoryKvStore({
-    [kernel.buildAdminIndexUploadKey(indexRecord.revision)]: indexRecord
+    [kernel.buildAdminIndexUploadKey(indexRecord.revision)]: indexRecord,
   });
   const env = { ENI_KV: kv };
   const cacheReads = [];
@@ -5490,42 +6462,49 @@ test("immutable vendor assets use asset cache and immutable browser policy", asy
       const url = new URL(request.url);
       cacheReads.push(url.hostname);
       if (url.hostname === "admin-release-vendor-manifest.invalid") {
-        return new Response(JSON.stringify({
-          ...indexRecord.manifest,
-          entries: [manifestEntry]
-        }));
+        return new Response(
+          JSON.stringify({
+            ...indexRecord.manifest,
+            entries: [manifestEntry],
+          }),
+        );
       }
       return null;
     },
     async put(request) {
       cacheWrites.push(new URL(request.url).hostname);
-    }
+    },
   };
 
-  await withWorkerGlobals({
-    caches: { default: edgeCache },
-    fetch: async (url) => {
-      assert.equal(url, upstreamUrl);
-      return new Response("window.immutableAssetLoaded=true;", {
-        headers: { "Content-Type": "application/javascript" }
-      });
-    }
-  }, async () => {
-    const response = await renderAdminReleaseVendorAsset(
-      new Request(`https://worker.test/admin/__release/${indexRecord.assetRevision}/vendor/${manifestEntry.assetKey}`),
-      env,
-      null,
-      { releaseTag: indexRecord.assetRevision, assetKey: manifestEntry.assetKey },
-      {}
-    );
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("Cache-Control"), "public, max-age=31536000, immutable");
-    assert.match(await response.text(), /immutableAssetLoaded/);
-  });
+  await withWorkerGlobals(
+    {
+      caches: { default: edgeCache },
+      fetch: async (url) => {
+        assert.equal(url, upstreamUrl);
+        return new Response("window.immutableAssetLoaded=true;", {
+          headers: { "Content-Type": "application/javascript" },
+        });
+      },
+    },
+    async () => {
+      const response = await renderAdminReleaseVendorAsset(
+        new Request(
+          `https://worker.test/admin/__release/${indexRecord.assetRevision}/vendor/${manifestEntry.assetKey}`,
+        ),
+        env,
+        null,
+        { releaseTag: indexRecord.assetRevision, assetKey: manifestEntry.assetKey },
+        {},
+      );
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("Cache-Control"), "public, max-age=31536000, immutable");
+      assert.match(await response.text(), /immutableAssetLoaded/);
+    },
+  );
 
   assert.deepEqual(cacheReads, [
     "admin-release-vendor-manifest.invalid",
-    "admin-release-vendor-cache.invalid"
+    "admin-release-vendor-cache.invalid",
   ]);
   assert.deepEqual(cacheWrites, ["admin-release-vendor-cache.invalid"]);
 });
@@ -5551,17 +6530,20 @@ test("API MIME guard replaces an upstream frontend document with structured JSON
         "Content-Type": "text/html; charset=utf-8",
         "Content-Length": "42",
         "Content-Encoding": "gzip",
-        "ETag": "frontend-shell"
-      }
-    })
-  };
-  const result = await proxyService.guardApiResponseMime({
-    request: new Request("https://worker.test/alpha/System/Info", {
-      headers: { Accept: "application/json" }
+        ETag: "frontend-shell",
+      },
     }),
-    requestMethod: "GET",
-    requestTraits: { isApiRequest: true }
-  }, upstreamState);
+  };
+  const result = await proxyService.guardApiResponseMime(
+    {
+      request: new Request("https://worker.test/alpha/System/Info", {
+        headers: { Accept: "application/json" },
+      }),
+      requestMethod: "GET",
+      requestTraits: { isApiRequest: true },
+    },
+    upstreamState,
+  );
 
   assert.notEqual(result, upstreamState);
   assert.equal(result.response.status, 502);
@@ -5577,62 +6559,77 @@ test("API MIME guard replaces an upstream frontend document with structured JSON
     message: "Upstream API returned an HTML document instead of API data.",
     details: {
       upstreamStatus: 200,
-      contentType: "text/html"
-    }
+      contentType: "text/html",
+    },
   });
 });
 
 test("API MIME guard preserves explicit root navigation and legitimate non-HTML API responses", async () => {
   const htmlState = {
     response: new Response("<!doctype html><title>Emby</title>", {
-      headers: { "Content-Type": "text/html" }
-    })
+      headers: { "Content-Type": "text/html" },
+    }),
   };
   const documentExecution = {
     request: new Request("https://worker.test/alpha/", {
-      headers: { Accept: "text/html,application/xhtml+xml" }
+      headers: { Accept: "text/html,application/xhtml+xml" },
     }),
     requestMethod: "GET",
     proxyPath: "/",
-    requestTraits: { isApiRequest: true }
+    requestTraits: { isApiRequest: true },
   };
   assert.equal(await proxyService.guardApiResponseMime(documentExecution, htmlState), htmlState);
   for (const accept of ["*/*", "text/*;q=0.5"]) {
-    assert.equal(await proxyService.guardApiResponseMime({
-      ...documentExecution,
-      request: new Request("https://worker.test/alpha/", { headers: { Accept: accept } })
-    }, htmlState), htmlState);
+    assert.equal(
+      await proxyService.guardApiResponseMime(
+        {
+          ...documentExecution,
+          request: new Request("https://worker.test/alpha/", { headers: { Accept: accept } }),
+        },
+        htmlState,
+      ),
+      htmlState,
+    );
   }
-  const explicitlyRejectedHtml = await proxyService.guardApiResponseMime({
-    ...documentExecution,
-    request: new Request("https://worker.test/alpha/", {
-      headers: { Accept: "*/*;q=1, text/html;q=0" }
-    })
-  }, htmlState);
+  const explicitlyRejectedHtml = await proxyService.guardApiResponseMime(
+    {
+      ...documentExecution,
+      request: new Request("https://worker.test/alpha/", {
+        headers: { Accept: "*/*;q=1, text/html;q=0" },
+      }),
+    },
+    htmlState,
+  );
   assert.equal(explicitlyRejectedHtml.response.status, 502);
   assert.equal(explicitlyRejectedHtml.response.headers.get("X-Proxy-Mime-Guard"), "html-document");
 
   const textState = {
-    response: new Response("Emby Server", { headers: { "Content-Type": "text/plain" } })
+    response: new Response("Emby Server", { headers: { "Content-Type": "text/plain" } }),
   };
   const apiExecution = {
     request: new Request("https://worker.test/alpha/System/Ping", {
-      headers: { Accept: "application/json" }
+      headers: { Accept: "application/json" },
     }),
     requestMethod: "GET",
-    requestTraits: { isApiRequest: true }
+    requestTraits: { isApiRequest: true },
   };
   assert.equal(await proxyService.guardApiResponseMime(apiExecution, textState), textState);
 
   const staticState = {
     response: new Response("<!doctype html><title>Asset</title>", {
-      headers: { "Content-Type": "text/html" }
-    })
+      headers: { "Content-Type": "text/html" },
+    }),
   };
-  assert.equal(await proxyService.guardApiResponseMime({
-    ...apiExecution,
-    requestTraits: { isApiRequest: false, isStaticFile: true }
-  }, staticState), staticState);
+  assert.equal(
+    await proxyService.guardApiResponseMime(
+      {
+        ...apiExecution,
+        requestTraits: { isApiRequest: false, isStaticFile: true },
+      },
+      staticState,
+    ),
+    staticState,
+  );
 });
 
 test("API MIME guard does not sniff generic bodies and does not treat q=0 as document acceptance", async () => {
@@ -5640,38 +6637,52 @@ test("API MIME guard does not sniff generic bodies and does not treat q=0 as doc
     const headers = contentType ? { "Content-Type": contentType } : {};
     const body = "\uFEFF<!-- edge fallback --><!doctype html><html><body>Frontend</body></html>";
     const upstreamState = {
-      response: new Response(contentType ? body : new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(body));
-          controller.close();
-        }
-      }), { headers })
+      response: new Response(
+        contentType
+          ? body
+          : new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode(body));
+                controller.close();
+              },
+            }),
+        { headers },
+      ),
     };
-    const result = await proxyService.guardApiResponseMime({
-      request: new Request("https://worker.test/alpha/", {
-        headers: { Accept: "application/json" }
-      }),
-      requestMethod: "GET",
-      proxyPath: "/",
-      requestTraits: { isApiRequest: true }
-    }, upstreamState);
+    const result = await proxyService.guardApiResponseMime(
+      {
+        request: new Request("https://worker.test/alpha/", {
+          headers: { Accept: "application/json" },
+        }),
+        requestMethod: "GET",
+        proxyPath: "/",
+        requestTraits: { isApiRequest: true },
+      },
+      upstreamState,
+    );
     assert.equal(result, upstreamState);
-    assert.equal((await result.response.text()).replace(/^\uFEFF/, ""), body.replace(/^\uFEFF/, ""));
+    assert.equal(
+      (await result.response.text()).replace(/^\uFEFF/, ""),
+      body.replace(/^\uFEFF/, ""),
+    );
   }
 
   for (const contentType of ["text/html", "application/xhtml+xml"]) {
-    const result = await proxyService.guardApiResponseMime({
-      request: new Request("https://worker.test/alpha/", {
-        headers: { Accept: "application/json, text/html;q=0, application/xhtml+xml;q=0" }
-      }),
-      requestMethod: "GET",
-      proxyPath: "/",
-      requestTraits: { isApiRequest: true }
-    }, {
-      response: new Response("<html><body>Frontend</body></html>", {
-        headers: { "Content-Type": contentType }
-      })
-    });
+    const result = await proxyService.guardApiResponseMime(
+      {
+        request: new Request("https://worker.test/alpha/", {
+          headers: { Accept: "application/json, text/html;q=0, application/xhtml+xml;q=0" },
+        }),
+        requestMethod: "GET",
+        proxyPath: "/",
+        requestTraits: { isApiRequest: true },
+      },
+      {
+        response: new Response("<html><body>Frontend</body></html>", {
+          headers: { "Content-Type": contentType },
+        }),
+      },
+    );
     assert.equal(result.response.status, 502);
     assert.equal(result.response.headers.get("X-Proxy-Mime-Guard"), "html-document");
     assert.equal((await result.response.json()).details.contentType, contentType);
@@ -5679,14 +6690,21 @@ test("API MIME guard does not sniff generic bodies and does not treat q=0 as doc
 });
 
 test("PlaybackInfo contract preserves HEAD and no-content responses", async () => {
-  for (const [requestMethod, status] of [["HEAD", 200], ["POST", 204], ["POST", 205]]) {
+  for (const [requestMethod, status] of [
+    ["HEAD", 200],
+    ["POST", 204],
+    ["POST", 205],
+  ]) {
     const upstreamState = {
-      response: new Response(null, { status, headers: { "Content-Type": "text/plain" } })
+      response: new Response(null, { status, headers: { "Content-Type": "text/plain" } }),
     };
-    const result = await proxyService.guardPlaybackInfoResponseContract({
-      requestMethod,
-      requestTraits: { isPlaybackInfoRequest: true }
-    }, upstreamState);
+    const result = await proxyService.guardPlaybackInfoResponseContract(
+      {
+        requestMethod,
+        requestTraits: { isPlaybackInfoRequest: true },
+      },
+      upstreamState,
+    );
     assert.equal(result, upstreamState);
   }
 });
@@ -5695,7 +6713,7 @@ test("production PlaybackInfo stages stop after contract rejection", async () =>
   const execution = {
     request: new Request("https://worker.test/alpha/Items/1/PlaybackInfo", {
       method: "POST",
-      headers: { Accept: "application/json" }
+      headers: { Accept: "application/json" },
     }),
     requestMethod: "POST",
     requestUrl: new URL("https://worker.test/alpha/Items/1/PlaybackInfo"),
@@ -5704,7 +6722,7 @@ test("production PlaybackInfo stages stop after contract rejection", async () =>
     requestTraits: {
       isApiRequest: true,
       isPlaybackInfoRequest: true,
-      isPlaybackCriticalRequest: true
+      isPlaybackCriticalRequest: true,
     },
     effectivePlaybackInfoMode: "rewrite",
     playbackInfoRewrite: "",
@@ -5718,15 +6736,15 @@ test("production PlaybackInfo stages stop after contract rejection", async () =>
     nodeKey: "",
     nodeDerivedCacheRevision: "rev-1",
     targetHotCacheState: "miss",
-    routingDecisionMode: "default"
+    routingDecisionMode: "default",
   };
   const upstreamState = {
     response: new Response(JSON.stringify("frontend-shell"), {
       status: 200,
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json" },
     }),
     finalUrl: new URL("https://origin.test/Items/1/PlaybackInfo"),
-    activeTargetBase: new URL("https://origin.test")
+    activeTargetBase: new URL("https://origin.test"),
   };
   const originalRewrite = proxyService.maybeRewritePlaybackInfoResponse;
   const originalRecordAccessLog = proxyService.recordAccessLog;
@@ -5752,18 +6770,35 @@ test("production PlaybackInfo stages stop after contract rejection", async () =>
   assert.equal(rewriteCalled, false);
   assert.equal(execution.playbackInfoRewrite, "rejected");
   assert.equal(accessLogPayload?.detailJson?.playbackInfoRewrite, "rejected");
-  assert.match(proxyService.buildPlaybackInfoCacheDiagnosticDetail(execution), /PlaybackInfoRewrite=rejected/);
+  assert.match(
+    proxyService.buildPlaybackInfoCacheDiagnosticDetail(execution),
+    /PlaybackInfoRewrite=rejected/,
+  );
 });
 
 test("local firewall, rate-limit, and invalid-target errors remain text responses", async () => {
-  const firewallResponse = proxyService.evaluateFirewall({ ipBlacklist: "198.51.100.41" }, "198.51.100.41", "US", "*");
+  const firewallResponse = proxyService.evaluateFirewall(
+    { ipBlacklist: "198.51.100.41" },
+    "198.51.100.41",
+    "US",
+    "*",
+  );
   assert.equal(firewallResponse.status, 403);
   assert.equal(await firewallResponse.text(), "Forbidden by IP Firewall");
 
   const rateLimitConfig = { rateLimitRpm: 1 };
   const requestTraits = { isPlaybackCriticalRequest: false };
-  assert.equal(proxyService.applyRateLimit(rateLimitConfig, "198.51.100.42", requestTraits, 1000, "*"), null);
-  const rateLimitResponse = proxyService.applyRateLimit(rateLimitConfig, "198.51.100.42", requestTraits, 1000, "*");
+  assert.equal(
+    proxyService.applyRateLimit(rateLimitConfig, "198.51.100.42", requestTraits, 1000, "*"),
+    null,
+  );
+  const rateLimitResponse = proxyService.applyRateLimit(
+    rateLimitConfig,
+    "198.51.100.42",
+    requestTraits,
+    1000,
+    "*",
+  );
   assert.equal(rateLimitResponse.status, 429);
   assert.equal(await rateLimitResponse.text(), "Rate Limit Exceeded");
 
@@ -5780,71 +6815,83 @@ test("oversized PlaybackInfo responses are not retained in isolate memory", asyn
     requestMethod: "POST",
     playbackInfoCacheTtlSec: 60,
     nodeName: "alpha",
-    nodeDerivedCacheRevision: "rev-1"
+    nodeDerivedCacheRevision: "rev-1",
   };
   const oversizedBody = "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes + 1);
-  const stored = await proxyService.storePlaybackInfoResponseCache(execution, new Response(oversizedBody, {
-    headers: { "Content-Type": "application/json" }
-  }));
+  const stored = await proxyService.storePlaybackInfoResponseCache(
+    execution,
+    new Response(oversizedBody, {
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
   assert.equal(stored, false);
   assert.equal(isolateState.PlaybackInfoResponseCache.size, 0);
 });
 
-test("oversized PlaybackInfo objects are rejected by the contract guard", { timeout: 2000 }, async () => {
-  const oversizedBody = JSON.stringify({ padding: "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes + 1) });
-  const response = new Response(oversizedBody, {
-    headers: { "Content-Type": "application/json" }
-  });
-  const upstreamState = { response };
-  const execution = {
-    requestTraits: { isPlaybackInfoRequest: true },
-    effectivePlaybackInfoMode: "rewrite",
-    requestMethod: "POST",
-    playbackInfoRewrite: ""
-  };
-  const result = await proxyService.maybeRewritePlaybackInfoResponse(execution, upstreamState);
-  assert.equal(result.response.status, 502);
-  assert.equal(execution.playbackInfoRewrite, "rejected");
-  assert.equal(result.response.headers.get("X-Proxy-Contract-Guard"), "playback-info");
-  assert.equal((await result.response.json()).details.reason, "body_too_large");
-});
+test(
+  "oversized PlaybackInfo objects are rejected by the contract guard",
+  { timeout: 2000 },
+  async () => {
+    const oversizedBody = JSON.stringify({
+      padding: "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes + 1),
+    });
+    const response = new Response(oversizedBody, {
+      headers: { "Content-Type": "application/json" },
+    });
+    const upstreamState = { response };
+    const execution = {
+      requestTraits: { isPlaybackInfoRequest: true },
+      effectivePlaybackInfoMode: "rewrite",
+      requestMethod: "POST",
+      playbackInfoRewrite: "",
+    };
+    const result = await proxyService.maybeRewritePlaybackInfoResponse(execution, upstreamState);
+    assert.equal(result.response.status, 502);
+    assert.equal(execution.playbackInfoRewrite, "rejected");
+    assert.equal(result.response.headers.get("X-Proxy-Contract-Guard"), "playback-info");
+    assert.equal((await result.response.json()).details.reason, "body_too_large");
+  },
+);
 
 test("PlaybackInfo passthrough decodes nested object fields and removes invalid entries", async () => {
   const execution = {
     requestTraits: { isPlaybackInfoRequest: true },
     effectivePlaybackInfoMode: "passthrough",
     requestMethod: "POST",
-    playbackInfoRewrite: ""
+    playbackInfoRewrite: "",
   };
   const upstreamState = {
-    response: new Response(JSON.stringify({
-      PlaySessionId: "session-1",
-      MediaSources: JSON.stringify([
-        JSON.stringify({
-          Id: "encoded-source",
-          MediaStreams: [JSON.stringify({ Index: 0, Codec: "h264" }), "invalid-stream"],
-          MediaAttachments: JSON.stringify([{ Codec: "srt" }, null]),
-          RequiredHttpHeaders: JSON.stringify({ "X-Media-Token": "token" })
-        }),
-        {
-          Id: "valid-source",
-          Path: "/Videos/1/stream",
-          MediaStreams: "invalid-streams",
-          MediaAttachments: null,
-          RequiredHttpHeaders: "invalid-headers"
+    response: new Response(
+      JSON.stringify({
+        PlaySessionId: "session-1",
+        MediaSources: JSON.stringify([
+          JSON.stringify({
+            Id: "encoded-source",
+            MediaStreams: [JSON.stringify({ Index: 0, Codec: "h264" }), "invalid-stream"],
+            MediaAttachments: JSON.stringify([{ Codec: "srt" }, null]),
+            RequiredHttpHeaders: JSON.stringify({ "X-Media-Token": "token" }),
+          }),
+          {
+            Id: "valid-source",
+            Path: "/Videos/1/stream",
+            MediaStreams: "invalid-streams",
+            MediaAttachments: null,
+            RequiredHttpHeaders: "invalid-headers",
+          },
+          null,
+          ["array-source"],
+        ]),
+      }),
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": "999",
+          ETag: "stale-etag",
+          Digest: "sha-256=stale",
+          "X-Upstream": "preserved",
         },
-        null,
-        ["array-source"]
-      ])
-    }), {
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": "999",
-        "ETag": "stale-etag",
-        "Digest": "sha-256=stale",
-        "X-Upstream": "preserved"
-      }
-    })
+      },
+    ),
   };
 
   const result = await proxyService.maybeRewritePlaybackInfoResponse(execution, upstreamState);
@@ -5857,16 +6904,16 @@ test("PlaybackInfo passthrough decodes nested object fields and removes invalid 
         Id: "encoded-source",
         MediaStreams: [{ Index: 0, Codec: "h264" }],
         MediaAttachments: [{ Codec: "srt" }],
-        RequiredHttpHeaders: { "X-Media-Token": "token" }
+        RequiredHttpHeaders: { "X-Media-Token": "token" },
       },
       {
         Id: "valid-source",
         Path: "/Videos/1/stream",
         MediaStreams: [],
         MediaAttachments: [],
-        RequiredHttpHeaders: {}
-      }
-    ]
+        RequiredHttpHeaders: {},
+      },
+    ],
   });
   assert.equal(result.response.headers.get("Content-Length"), null);
   assert.equal(result.response.headers.get("ETag"), null);
@@ -5879,12 +6926,12 @@ test("PlaybackInfo passthrough replaces an invalid media source container with a
     requestTraits: { isPlaybackInfoRequest: true },
     effectivePlaybackInfoMode: "passthrough",
     requestMethod: "POST",
-    playbackInfoRewrite: ""
+    playbackInfoRewrite: "",
   };
   const upstreamState = {
     response: new Response(JSON.stringify({ MediaSources: "invalid-sources" }), {
-      headers: { "Content-Type": "application/json" }
-    })
+      headers: { "Content-Type": "application/json" },
+    }),
   };
 
   const result = await proxyService.maybeRewritePlaybackInfoResponse(execution, upstreamState);
@@ -5893,17 +6940,18 @@ test("PlaybackInfo passthrough replaces an invalid media source container with a
 });
 
 test("valid PlaybackInfo passthrough keeps the original response unchanged", async () => {
-  const bodyText = '{\n  "MediaSources": [{"Id":"valid-source","MediaStreams":[{"Index":0}],"MediaAttachments":[],"RequiredHttpHeaders":{}}],\n  "Marker": "original-bytes"\n}';
+  const bodyText =
+    '{\n  "MediaSources": [{"Id":"valid-source","MediaStreams":[{"Index":0}],"MediaAttachments":[],"RequiredHttpHeaders":{}}],\n  "Marker": "original-bytes"\n}';
   const execution = {
     requestTraits: { isPlaybackInfoRequest: true },
     effectivePlaybackInfoMode: "passthrough",
     requestMethod: "POST",
-    playbackInfoRewrite: ""
+    playbackInfoRewrite: "",
   };
   const upstreamState = {
     response: new Response(bodyText, {
-      headers: { "Content-Type": "application/json", "ETag": "preserved-etag" }
-    })
+      headers: { "Content-Type": "application/json", ETag: "preserved-etag" },
+    }),
   };
 
   const result = await proxyService.maybeRewritePlaybackInfoResponse(execution, upstreamState);
@@ -5922,10 +6970,10 @@ test("PlaybackInfo rejects unsupported MIME and oversized responses as structure
     requestTraits: { isPlaybackInfoRequest: true },
     effectivePlaybackInfoMode: "passthrough",
     requestMethod: "POST",
-    playbackInfoRewrite: ""
+    playbackInfoRewrite: "",
   });
   const textState = {
-    response: new Response("upstream text", { headers: { "Content-Type": "text/plain" } })
+    response: new Response("upstream text", { headers: { "Content-Type": "text/plain" } }),
   };
   const textExecution = makeExecution();
   const textResult = await proxyService.maybeRewritePlaybackInfoResponse(textExecution, textState);
@@ -5937,10 +6985,13 @@ test("PlaybackInfo rejects unsupported MIME and oversized responses as structure
 
   const oversizedBody = "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes + 1);
   const oversizedState = {
-    response: new Response(oversizedBody, { headers: { "Content-Type": "application/json" } })
+    response: new Response(oversizedBody, { headers: { "Content-Type": "application/json" } }),
   };
   const oversizedExecution = makeExecution();
-  const oversizedResult = await proxyService.maybeRewritePlaybackInfoResponse(oversizedExecution, oversizedState);
+  const oversizedResult = await proxyService.maybeRewritePlaybackInfoResponse(
+    oversizedExecution,
+    oversizedState,
+  );
   assert.equal(oversizedResult.response.status, 502);
   assert.equal(oversizedExecution.playbackInfoRewrite, "rejected");
   assert.equal((await oversizedResult.response.json()).details.reason, "body_too_large");
@@ -5951,17 +7002,21 @@ test("PlaybackInfo rejects double-encoded and text/plain JSON objects", async ()
     requestTraits: { isPlaybackInfoRequest: true },
     effectivePlaybackInfoMode: "passthrough",
     requestMethod: "POST",
-    playbackInfoRewrite: ""
+    playbackInfoRewrite: "",
   });
   const payload = { PlaySessionId: "session-1", MediaSources: [] };
   for (const [body, contentType, reason] of [
     [JSON.stringify(JSON.stringify(payload)), "application/json", "invalid_root_object"],
-    [JSON.stringify(payload), "text/plain", "unsupported_content_type"]
+    [JSON.stringify(payload), "text/plain", "unsupported_content_type"],
   ]) {
     const result = await proxyService.maybeRewritePlaybackInfoResponse(makeExecution(), {
       response: new Response(body, {
-        headers: { "Content-Type": contentType, "Content-Length": String(body.length), ETag: "stale" }
-      })
+        headers: {
+          "Content-Type": contentType,
+          "Content-Length": String(body.length),
+          ETag: "stale",
+        },
+      }),
     });
     assert.equal(result.response.status, 502);
     assert.equal(result.response.headers.get("Content-Type"), "application/json; charset=utf-8");
@@ -5974,23 +7029,31 @@ test("PlaybackInfo rejects double-encoded and text/plain JSON objects", async ()
 
 test("PlaybackInfo rejects arrays, scalars, null, malformed JSON, and JSONP media types", async () => {
   const cases = [
-    { body: JSON.stringify("frontend"), contentType: "application/json", reason: "invalid_root_object" },
+    {
+      body: JSON.stringify("frontend"),
+      contentType: "application/json",
+      reason: "invalid_root_object",
+    },
     { body: JSON.stringify([]), contentType: "text/json", reason: "invalid_root_object" },
-    { body: JSON.stringify(42), contentType: "application/problem+json", reason: "invalid_root_object" },
+    {
+      body: JSON.stringify(42),
+      contentType: "application/problem+json",
+      reason: "invalid_root_object",
+    },
     { body: "null", contentType: "application/json", reason: "invalid_root_object" },
     { body: "{broken", contentType: "application/json", reason: "invalid_root_object" },
     { body: "{}", contentType: "application/json,text/html", reason: "unsupported_content_type" },
-    { body: "callback({})", contentType: "application/jsonp", reason: "unsupported_content_type" }
+    { body: "callback({})", contentType: "application/jsonp", reason: "unsupported_content_type" },
   ];
   for (const fixture of cases) {
     const execution = {
       requestTraits: { isPlaybackInfoRequest: true },
       effectivePlaybackInfoMode: "passthrough",
       requestMethod: "POST",
-      playbackInfoRewrite: ""
+      playbackInfoRewrite: "",
     };
     const result = await proxyService.maybeRewritePlaybackInfoResponse(execution, {
-      response: new Response(fixture.body, { headers: { "Content-Type": fixture.contentType } })
+      response: new Response(fixture.body, { headers: { "Content-Type": fixture.contentType } }),
     });
     assert.equal(result.response.status, 502);
     assert.equal(result.response.headers.get("Content-Type"), "application/json; charset=utf-8");
@@ -6007,20 +7070,28 @@ test("PlaybackInfo cache store rejects responses without a valid representation"
     requestMethod: "POST",
     playbackInfoCacheTtlSec: 60,
     nodeName: "alpha",
-    nodeDerivedCacheRevision: "rev-1"
+    nodeDerivedCacheRevision: "rev-1",
   };
   const response = new Response(JSON.stringify({ MediaSources: [] }), {
-    headers: { "Content-Type": "application/json" }
+    headers: { "Content-Type": "application/json" },
   });
   const forgedRepresentation = Object.freeze({
     contract: "playback-info",
     response,
     bodyText: JSON.stringify({ MediaSources: [] }),
     bodyBytes: 19,
-    payload: { MediaSources: [] }
+    payload: { MediaSources: [] },
   });
   assert.equal(await proxyService.storePlaybackInfoResponseCache(execution, response), false);
-  assert.equal(await proxyService.storePlaybackInfoResponseCache(execution, response, null, forgedRepresentation), false);
+  assert.equal(
+    await proxyService.storePlaybackInfoResponseCache(
+      execution,
+      response,
+      null,
+      forgedRepresentation,
+    ),
+    false,
+  );
   assert.equal(isolateState.PlaybackInfoResponseCache.size, 0);
 });
 
@@ -6039,14 +7110,19 @@ test("PlaybackInfo cache evicts legacy invalid entries before delivery", async (
     requestUrl: new URL("https://worker.test/alpha/Items/1/PlaybackInfo"),
     request: new Request("https://worker.test/alpha/Items/1/PlaybackInfo"),
     dynamicCors: {},
-    finalOrigin: "*"
+    finalOrigin: "*",
   };
   const cacheKey = proxyService.buildPlaybackInfoCacheKey(execution);
   for (const fixture of [
     { contentType: "application/json", bodyText: JSON.stringify("frontend") },
     { contentType: "application/json", bodyText: "{broken" },
     { contentType: "text/plain", bodyText: "{}" },
-    { contentType: "application/json", bodyText: JSON.stringify({ padding: "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes) }) }
+    {
+      contentType: "application/json",
+      bodyText: JSON.stringify({
+        padding: "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes),
+      }),
+    },
   ]) {
     isolateState.PlaybackInfoResponseCache.set(cacheKey, {
       status: 200,
@@ -6054,7 +7130,7 @@ test("PlaybackInfo cache evicts legacy invalid entries before delivery", async (
       headers: [["Content-Type", fixture.contentType]],
       bodyText: fixture.bodyText,
       bodyBytes: 1,
-      expiresAt: Date.now() + 60000
+      expiresAt: Date.now() + 60000,
     });
 
     assert.equal(await proxyService.tryServePlaybackInfoResponseCache(execution), null);
@@ -6087,24 +7163,37 @@ test("PlaybackInfo rewrite reuses its bounded body snapshot for isolate caching"
       proxyPath: "/Items/1/PlaybackInfo",
       requestUrl: new URL("https://worker.test/alpha/Items/1/PlaybackInfo"),
       rawRequestUrl: new URL("https://worker.test/alpha/Items/1/PlaybackInfo"),
-      entryMode: "kv_route"
+      entryMode: "kv_route",
     };
     const upstreamState = {
-      response: new Response(JSON.stringify({
-        MediaSources: [{ Path: "/Videos/1/stream" }]
-      }), {
-        headers: { "Content-Type": "application/json" }
-      }),
+      response: new Response(
+        JSON.stringify({
+          MediaSources: [{ Path: "/Videos/1/stream" }],
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
       activeTargetBase: new URL("https://origin.test"),
-      finalUrl: new URL("https://origin.test/Items/1/PlaybackInfo")
+      finalUrl: new URL("https://origin.test/Items/1/PlaybackInfo"),
     };
 
-    const guardedState = await proxyService.guardPlaybackInfoResponseContract(execution, upstreamState);
+    const guardedState = await proxyService.guardPlaybackInfoResponseContract(
+      execution,
+      upstreamState,
+    );
     const sourcePayload = guardedState.playbackInfoRepresentation.payload;
     const sourcePayloadSnapshot = JSON.stringify(sourcePayload);
-    const rewrittenState = await proxyService.maybeRewritePlaybackInfoResponse(execution, guardedState);
+    const rewrittenState = await proxyService.maybeRewritePlaybackInfoResponse(
+      execution,
+      guardedState,
+    );
     assert.equal(cloneCount, 1);
-    assert.equal(JSON.stringify(sourcePayload), sourcePayloadSnapshot, "rewrite must not mutate the inspected payload");
+    assert.equal(
+      JSON.stringify(sourcePayload),
+      sourcePayloadSnapshot,
+      "rewrite must not mutate the inspected payload",
+    );
     assert.notEqual(rewrittenState.playbackInfoRepresentation.payload, sourcePayload);
     assert.ok(rewrittenState.playbackInfoRepresentation.bodyBytes > 0);
 
@@ -6112,13 +7201,13 @@ test("PlaybackInfo rewrite reuses its bounded body snapshot for isolate caching"
       execution,
       rewrittenState.response,
       null,
-      rewrittenState.playbackInfoRepresentation
+      rewrittenState.playbackInfoRepresentation,
     );
     assert.equal(stored, true);
     assert.equal(cloneCount, 1, "cache storage must reuse the rewrite snapshot");
     assert.equal(
       isolateState.PlaybackInfoResponseCache.get("playback-info:single-read")?.bodyText,
-      rewrittenState.playbackInfoRepresentation.bodyText
+      rewrittenState.playbackInfoRepresentation.bodyText,
     );
   } finally {
     Object.defineProperty(Response.prototype, "clone", originalCloneDescriptor);
@@ -6128,7 +7217,9 @@ test("PlaybackInfo rewrite reuses its bounded body snapshot for isolate caching"
 
 test("PlaybackInfo cache evicts oldest entries at its total byte budget", () => {
   isolateState.PlaybackInfoResponseCache.clear();
-  const bodyText = JSON.stringify({ padding: "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes - 32) });
+  const bodyText = JSON.stringify({
+    padding: "x".repeat(Config.Defaults.PlaybackInfoCacheEntryMaxBytes - 32),
+  });
   const entryBytes = new TextEncoder().encode(bodyText).byteLength;
   const entryCount = Math.floor(Config.Defaults.PlaybackInfoCacheTotalMaxBytes / entryBytes) + 1;
   for (let index = 0; index < entryCount; index += 1) {
@@ -6138,14 +7229,16 @@ test("PlaybackInfo cache evicts oldest entries at its total byte budget", () => 
       headers: [["Content-Type", "application/json"]],
       bodyText,
       bodyBytes: 1,
-      expiresAt: Date.now() + 60000
+      expiresAt: Date.now() + 60000,
     });
   }
   proxyService.cleanupPlaybackInfoResponseCache();
   assert.equal(isolateState.PlaybackInfoResponseCache.has("entry-0"), false);
   assert.equal(isolateState.PlaybackInfoResponseCache.has(`entry-${entryCount - 1}`), true);
-  const retainedBytes = [...isolateState.PlaybackInfoResponseCache.values()]
-    .reduce((total, entry) => total + entry.bodyBytes, 0);
+  const retainedBytes = [...isolateState.PlaybackInfoResponseCache.values()].reduce(
+    (total, entry) => total + entry.bodyBytes,
+    0,
+  );
   assert.ok(retainedBytes <= Config.Defaults.PlaybackInfoCacheTotalMaxBytes);
   isolateState.PlaybackInfoResponseCache.clear();
 });
@@ -6157,9 +7250,9 @@ test("unknown-length control requests stay streamed instead of being cloned into
       start(controller) {
         controller.enqueue(new TextEncoder().encode("{}"));
         controller.close();
-      }
+      },
     }),
-    duplex: "half"
+    duplex: "half",
   });
   assert.equal(request.headers.has("Content-Length"), false);
   const transport = await proxyService.buildProxyRequestState(
@@ -6175,17 +7268,17 @@ test("unknown-length control requests stay streamed instead of being cloned into
       isSmartStrmMedia: false,
       isSegment: false,
       isManifest: false,
-      isWsUpgrade: false
+      isWsUpgrade: false,
     },
     false,
     [],
-    {}
+    {},
   );
   assert.equal(transport.preparedBodyMode, "stream");
   const execution = {
     requestMethod: "POST",
     requestUrl: new URL("https://worker.test/Sessions/Playing/Progress?ItemId=query-item"),
-    request
+    request,
   };
   const parsed = proxyService.parsePlaybackSessionControlPayload(execution, transport);
   assert.equal(parsed.parseError, true);
@@ -6193,14 +7286,17 @@ test("unknown-length control requests stay streamed instead of being cloned into
   assert.equal(parsed.parseErrorReason, "unbuffered_body");
   assert.equal(parsed.query.itemid, "query-item");
 
-  const oversizedRequest = new Request("https://worker.test/Sessions/Playing?ItemId=oversized-query", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Content-Length": String(256 * 1024 + 1)
+  const oversizedRequest = new Request(
+    "https://worker.test/Sessions/Playing?ItemId=oversized-query",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": String(256 * 1024 + 1),
+      },
+      body: JSON.stringify({ ItemId: "body-item" }),
     },
-    body: JSON.stringify({ ItemId: "body-item" })
-  });
+  );
   const oversizedTransport = await proxyService.buildProxyRequestState(
     oversizedRequest,
     {},
@@ -6214,18 +7310,21 @@ test("unknown-length control requests stay streamed instead of being cloned into
       isSmartStrmMedia: false,
       isSegment: false,
       isManifest: false,
-      isWsUpgrade: false
+      isWsUpgrade: false,
     },
     false,
     [],
-    {}
+    {},
   );
   assert.equal(oversizedTransport.preparedBodyMode, "stream");
-  const oversizedParsed = proxyService.parsePlaybackSessionControlPayload({
-    requestMethod: "POST",
-    requestUrl: new URL(oversizedRequest.url),
-    request: oversizedRequest
-  }, oversizedTransport);
+  const oversizedParsed = proxyService.parsePlaybackSessionControlPayload(
+    {
+      requestMethod: "POST",
+      requestUrl: new URL(oversizedRequest.url),
+      request: oversizedRequest,
+    },
+    oversizedTransport,
+  );
   assert.equal(oversizedParsed.parseErrorReason, "unbuffered_body");
   assert.equal(oversizedParsed.query.itemid, "oversized-query");
 });
@@ -6238,7 +7337,7 @@ test("playback progress relay enforces its bounded session table on insertion", 
     videoProgressForwardIntervalSec: 3,
     nodeName: "alpha",
     nodeDerivedCacheRevision: "rev-1",
-    ctx: { waitUntil() {} }
+    ctx: { waitUntil() {} },
   };
   for (let index = 0; index < maxEntries + 1; index += 1) {
     proxyService.markPlaybackProgressRelayStopped(`session-${index}`, execution);
@@ -6253,12 +7352,19 @@ test("playback relay cancellation settles timers and all-active capacity does no
   const relayMap = isolateState.PlaybackProgressRelay;
   relayMap.clear();
   const waits = [];
-  const entry = proxyService.buildPlaybackProgressRelayEntry(60_000, { waitUntil(task) { waits.push(task); } });
+  const entry = proxyService.buildPlaybackProgressRelayEntry(60_000, {
+    waitUntil(task) {
+      waits.push(task);
+    },
+  });
   entry.pendingSnapshot = { ctx: entry.waitUntilCtx };
   relayMap.set("scheduled", entry);
   proxyService.schedulePlaybackProgressRelayFlush("scheduled", entry);
   assert.equal(waits.length, 1);
-  proxyService.markPlaybackProgressRelayStopped("scheduled", { videoProgressForwardIntervalSec: 3, nodeName: "alpha" });
+  proxyService.markPlaybackProgressRelayStopped("scheduled", {
+    videoProgressForwardIntervalSec: 3,
+    nodeName: "alpha",
+  });
   await waits[0];
   assert.equal(entry.scheduledPromise, null);
   assert.equal(entry.pendingSnapshot, null);
@@ -6273,7 +7379,7 @@ test("playback relay cancellation settles timers and all-active capacity does no
   }
   const admitted = proxyService.markPlaybackProgressRelayStopped("new-session", {
     videoProgressForwardIntervalSec: 3,
-    nodeName: "alpha"
+    nodeName: "alpha",
   });
   assert.equal(admitted, null);
   assert.equal(relayMap.size, maxEntries);
@@ -6287,14 +7393,19 @@ test("incremental isolate cleanup covers nonessential proxy-adjacent caches", ()
   const now = Date.now();
   const staleCases = [
     [5, isolateState.PlaybackInfoResponseCache, "stale-playback", { expiresAt: now - 1 }],
-    [6, isolateState.ProxyFailoverStateCache, "stale-failover", {
-      preferredTargetExpiresAt: now - 1,
-      failingTargets: new Map(),
-      inFlightProbe: null,
-      lastProbeResult: null
-    }],
+    [
+      6,
+      isolateState.ProxyFailoverStateCache,
+      "stale-failover",
+      {
+        preferredTargetExpiresAt: now - 1,
+        failingTargets: new Map(),
+        inFlightProbe: null,
+        lastProbeResult: null,
+      },
+    ],
     [7, isolateState.PlaybackProgressRelay, "stale-progress", { lastTouchedAt: now - 120000 }],
-    [8, isolateState.DashboardMonthlyTrafficCache, "stale-month", { staleUntil: now - 1 }]
+    [8, isolateState.DashboardMonthlyTrafficCache, "stale-month", { staleUntil: now - 1 }],
   ];
   for (const [phase, cache, key, value] of staleCases) {
     cache.clear();
@@ -6311,11 +7422,43 @@ function createD1Recorder() {
   const prepared = [];
   const batches = [];
   const schemaColumns = [
-    "id", "timestamp", "node_name", "request_path", "request_method", "status_code", "response_time", "client_ip",
-    "inbound_colo", "outbound_colo", "user_agent", "referer", "category", "error_detail", "detail_json", "created_at",
-    "inbound_ip", "outbound_ip", "ip", "ip_type", "source_kind", "source_label", "line_label", "remark", "updated_at",
-    "name", "url", "source_type", "domain", "preset_id", "builtin_id", "enabled", "sort_order", "ip_limit",
-    "last_fetch_at", "last_fetch_status", "last_fetch_count"
+    "id",
+    "timestamp",
+    "node_name",
+    "request_path",
+    "request_method",
+    "status_code",
+    "response_time",
+    "client_ip",
+    "inbound_colo",
+    "outbound_colo",
+    "user_agent",
+    "referer",
+    "category",
+    "error_detail",
+    "detail_json",
+    "created_at",
+    "inbound_ip",
+    "outbound_ip",
+    "ip",
+    "ip_type",
+    "source_kind",
+    "source_label",
+    "line_label",
+    "remark",
+    "updated_at",
+    "name",
+    "url",
+    "source_type",
+    "domain",
+    "preset_id",
+    "builtin_id",
+    "enabled",
+    "sort_order",
+    "ip_limit",
+    "last_fetch_at",
+    "last_fetch_status",
+    "last_fetch_count",
   ];
   const db = {
     prepare(sql) {
@@ -6332,20 +7475,20 @@ function createD1Recorder() {
         },
         async all() {
           if (/^PRAGMA table_info/i.test(record.sql.trim())) {
-            return { results: schemaColumns.map(name => ({ name })) };
+            return { results: schemaColumns.map((name) => ({ name })) };
           }
           return { results: [] };
         },
         async first() {
           return null;
-        }
+        },
       };
       return statement;
     },
     async batch(statements) {
-      batches.push(statements.map(statement => statement.__record));
+      batches.push(statements.map((statement) => statement.__record));
       return statements.map(() => ({ success: true }));
-    }
+    },
   };
   return { db, prepared, batches };
 }
@@ -6356,19 +7499,41 @@ test("D1 OpsStatus reads and writes reuse the binding-local hot cache", async ()
 
   assert.equal(await kernel.getOpsStatusPayloadFromDb(recorder.db, scope), null);
   assert.equal(await kernel.getOpsStatusPayloadFromDb(recorder.db, scope), null);
-  assert.equal(recorder.prepared.filter(record => /^SELECT payload FROM sys_status/i.test(record.sql.trim())).length, 1);
-  assert.equal(recorder.prepared.filter(record => /^CREATE TABLE IF NOT EXISTS sys_status/i.test(record.sql.trim())).length, 1);
+  assert.equal(
+    recorder.prepared.filter((record) => /^SELECT payload FROM sys_status/i.test(record.sql.trim()))
+      .length,
+    1,
+  );
+  assert.equal(
+    recorder.prepared.filter((record) =>
+      /^CREATE TABLE IF NOT EXISTS sys_status/i.test(record.sql.trim()),
+    ).length,
+    1,
+  );
 
-  await kernel.putOpsStatusPayloadToDb(recorder.db, scope, { log: { status: "ready" } }, Date.now());
-  assert.deepEqual(await kernel.getOpsStatusPayloadFromDb(recorder.db, scope), { log: { status: "ready" } });
-  const selectCountBeforePatch = recorder.prepared.filter(record => /^SELECT payload FROM sys_status/i.test(record.sql.trim())).length;
+  await kernel.putOpsStatusPayloadToDb(
+    recorder.db,
+    scope,
+    { log: { status: "ready" } },
+    Date.now(),
+  );
+  assert.deepEqual(await kernel.getOpsStatusPayloadFromDb(recorder.db, scope), {
+    log: { status: "ready" },
+  });
+  const selectCountBeforePatch = recorder.prepared.filter((record) =>
+    /^SELECT payload FROM sys_status/i.test(record.sql.trim()),
+  ).length;
   await kernel.patchOpsStatus(recorder.db, { log: { lastFlushStatus: "success" } });
   assert.equal(
-    recorder.prepared.filter(record => /^SELECT payload FROM sys_status/i.test(record.sql.trim())).length,
+    recorder.prepared.filter((record) => /^SELECT payload FROM sys_status/i.test(record.sql.trim()))
+      .length,
     selectCountBeforePatch,
-    "a hot status patch must not reread root or all section scopes"
+    "a hot status patch must not reread root or all section scopes",
   );
-  assert.equal(recorder.prepared.filter(record => /^INSERT INTO sys_status/i.test(record.sql.trim())).length, 2);
+  assert.equal(
+    recorder.prepared.filter((record) => /^INSERT INTO sys_status/i.test(record.sql.trim())).length,
+    2,
+  );
 });
 
 test("Cloudflare runtime stale fallback performs one D1 cache lookup", async () => {
@@ -6381,19 +7546,24 @@ test("Cloudflare runtime stale fallback performs one D1 cache lookup", async () 
       payload: { cached: true },
       cachedAt: 1,
       expiresAt: 2,
-      updatedAt: 1
+      updatedAt: 1,
     };
   };
   await assert.rejects(
-    cacheOperations.loadCfRuntimeCachePayload({}, {
-      cacheKey: "runtime:test",
-      cacheGroup: "test",
-      resourceId: "test",
-      nowMs: 3,
-      loader: async () => { throw new Error("refresh_failed"); },
-      allowStale: false
-    }),
-    /refresh_failed/
+    cacheOperations.loadCfRuntimeCachePayload(
+      {},
+      {
+        cacheKey: "runtime:test",
+        cacheGroup: "test",
+        resourceId: "test",
+        nowMs: 3,
+        loader: async () => {
+          throw new Error("refresh_failed");
+        },
+        allowStale: false,
+      },
+    ),
+    /refresh_failed/,
   );
   assert.equal(cacheReadCount, 1);
 });
@@ -6402,36 +7572,70 @@ test("D1 schema initialization is single-flight and creates current runtime inde
   const logRecorder = createD1Recorder();
   await Promise.all([
     kernel.ensureLogsBaseSchema(logRecorder.db),
-    kernel.ensureLogsBaseSchema(logRecorder.db)
+    kernel.ensureLogsBaseSchema(logRecorder.db),
   ]);
   await kernel.ensureLogsBaseSchema(logRecorder.db);
   await Promise.all([
     kernel.ensureStatsHourlySchema(logRecorder.db),
-    kernel.ensureStatsHourlySchema(logRecorder.db)
+    kernel.ensureStatsHourlySchema(logRecorder.db),
   ]);
 
-  assert.equal(logRecorder.prepared.filter(record => /CREATE TABLE IF NOT EXISTS proxy_logs \(/.test(record.sql)).length, 1);
-  assert.equal(logRecorder.prepared.filter(record => /CREATE TABLE IF NOT EXISTS proxy_stats_hourly \(/.test(record.sql)).length, 1);
-  assert.ok(logRecorder.prepared.some(record => /idx_proxy_logs_client_time/.test(record.sql)));
+  assert.equal(
+    logRecorder.prepared.filter((record) =>
+      /CREATE TABLE IF NOT EXISTS proxy_logs \(/.test(record.sql),
+    ).length,
+    1,
+  );
+  assert.equal(
+    logRecorder.prepared.filter((record) =>
+      /CREATE TABLE IF NOT EXISTS proxy_stats_hourly \(/.test(record.sql),
+    ).length,
+    1,
+  );
+  assert.ok(logRecorder.prepared.some((record) => /idx_proxy_logs_client_time/.test(record.sql)));
   kernel.invalidateD1SchemaReadiness(logRecorder.db, "logs");
   await kernel.ensureLogsBaseSchema(logRecorder.db);
-  assert.equal(logRecorder.prepared.filter(record => /CREATE TABLE IF NOT EXISTS proxy_logs \(/.test(record.sql)).length, 2);
+  assert.equal(
+    logRecorder.prepared.filter((record) =>
+      /CREATE TABLE IF NOT EXISTS proxy_logs \(/.test(record.sql),
+    ).length,
+    2,
+  );
 
   const dnsRecorder = createD1Recorder();
   await Promise.all([
     kernel.ensureDnsIpWorkspaceSchema(dnsRecorder.db),
-    kernel.ensureDnsIpWorkspaceSchema(dnsRecorder.db)
+    kernel.ensureDnsIpWorkspaceSchema(dnsRecorder.db),
   ]);
   await kernel.ensureDnsIpWorkspaceSchema(dnsRecorder.db);
 
-  assert.equal(dnsRecorder.prepared.filter(record => /CREATE TABLE IF NOT EXISTS dns_ip_pool_items \(/.test(record.sql)).length, 1);
-  assert.ok(dnsRecorder.prepared.some(record => /idx_dns_ip_pool_items_updated_ip/.test(record.sql)));
-  assert.ok(dnsRecorder.prepared.some(record => /idx_dns_ip_probe_cache_colo_ip_expires/.test(record.sql)));
+  assert.equal(
+    dnsRecorder.prepared.filter((record) =>
+      /CREATE TABLE IF NOT EXISTS dns_ip_pool_items \(/.test(record.sql),
+    ).length,
+    1,
+  );
+  assert.ok(
+    dnsRecorder.prepared.some((record) => /idx_dns_ip_pool_items_updated_ip/.test(record.sql)),
+  );
+  assert.ok(
+    dnsRecorder.prepared.some((record) =>
+      /idx_dns_ip_probe_cache_colo_ip_expires/.test(record.sql),
+    ),
+  );
   kernel.invalidateD1SchemaReadiness(dnsRecorder.db, "all");
   await kernel.ensureDnsIpWorkspaceSchema(dnsRecorder.db);
-  assert.equal(dnsRecorder.prepared.filter(record => /CREATE TABLE IF NOT EXISTS dns_ip_pool_items \(/.test(record.sql)).length, 2);
+  assert.equal(
+    dnsRecorder.prepared.filter((record) =>
+      /CREATE TABLE IF NOT EXISTS dns_ip_pool_items \(/.test(record.sql),
+    ).length,
+    2,
+  );
 
-  const workerSource = await readFile(new URL("../worker/runtime/application-facades.js", import.meta.url), "utf8");
+  const workerSource = await readFile(
+    new URL("../worker/runtime/application-facades.js", import.meta.url),
+    "utf8",
+  );
   assert.match(workerSource, /async rebuildD1TableWithShadow/);
   assert.match(workerSource, /D1_SCHEMA_REPAIR_CONFIRMATION_REQUIRED/);
   assert.match(workerSource, /ALTER TABLE \$\{quoteSqlIdentifier\(tableName\)\} ADD COLUMN/);
@@ -6441,25 +7645,30 @@ test("D1 schema initialization is single-flight and creates current runtime inde
 
 test("D1 DNS writes keep stable ids and replace sources atomically", async () => {
   const recorder = createD1Recorder();
-  await kernel.upsertDnsIpPoolItems(recorder.db, [{
-    id: "item-v2",
-    ip: "203.0.113.10",
-    sourceKind: "manual",
-    sourceLabel: "manual"
-  }]);
-  const itemUpsertSql = recorder.prepared.find(record => /INSERT INTO dns_ip_pool_items/.test(record.sql))?.sql || "";
+  await kernel.upsertDnsIpPoolItems(recorder.db, [
+    {
+      id: "item-v2",
+      ip: "203.0.113.10",
+      sourceKind: "manual",
+      sourceLabel: "manual",
+    },
+  ]);
+  const itemUpsertSql =
+    recorder.prepared.find((record) => /INSERT INTO dns_ip_pool_items/.test(record.sql))?.sql || "";
   assert.doesNotMatch(itemUpsertSql, /id\s*=\s*excluded\.id/);
 
-  await kernel.persistDnsIpPoolSources({ db: recorder.db }, [{
-    id: "source-1",
-    name: "Example source",
-    url: "https://example.test/ips.txt",
-    sourceType: "url",
-    sourceKind: "custom",
-    enabled: true,
-    sortOrder: 0,
-    ipLimit: 5
-  }]);
+  await kernel.persistDnsIpPoolSources({ db: recorder.db }, [
+    {
+      id: "source-1",
+      name: "Example source",
+      url: "https://example.test/ips.txt",
+      sourceType: "url",
+      sourceKind: "custom",
+      enabled: true,
+      sortOrder: 0,
+      ipLimit: 5,
+    },
+  ]);
   const sourceBatch = recorder.batches.at(-1);
   assert.equal(sourceBatch.length, 2);
   assert.match(sourceBatch[0].sql, /^DELETE FROM dns_ip_pool_sources$/);
@@ -6467,8 +7676,8 @@ test("D1 DNS writes keep stable ids and replace sources atomically", async () =>
 
   const bulkItems = Array.from({ length: 250 }, (_, index) => ({
     id: `item-${index}`,
-    ip: `10.0.0.${index % 250 + 1}`,
-    sourceKind: "manual"
+    ip: `10.0.0.${(index % 250) + 1}`,
+    sourceKind: "manual",
   }));
   await kernel.upsertDnsIpPoolItems(recorder.db, bulkItems);
   assert.equal(recorder.batches.at(-1).length, 1);
@@ -6482,7 +7691,7 @@ test("D1 DNS writes keep stable ids and replace sources atomically", async () =>
     sourceKind: "custom",
     enabled: true,
     sortOrder: index,
-    ipLimit: 5
+    ipLimit: 5,
   }));
   await kernel.persistDnsIpPoolSources({ db: recorder.db }, bulkSources);
   assert.equal(recorder.batches.at(-1).length, 2);
@@ -6493,10 +7702,12 @@ test("D1 probe cache bulk reads stay within the 100 binding limit", async () => 
   const recorder = createD1Recorder();
   const ips = Array.from({ length: 99 }, (_, index) => `203.0.113.${index + 1}`);
   await kernel.getDnsIpProbeCacheEntries(recorder.db, ips, "SJC");
-  const bulkQueries = recorder.prepared.filter(record => /WHERE entry_colo = \? AND expires_at > \? AND ip IN/.test(record.sql));
+  const bulkQueries = recorder.prepared.filter((record) =>
+    /WHERE entry_colo = \? AND expires_at > \? AND ip IN/.test(record.sql),
+  );
   assert.equal(bulkQueries.length, 2);
-  assert.ok(bulkQueries.every(record => record.bindings.length <= 100));
-  assert.equal(Math.max(...bulkQueries.map(record => record.bindings.length)), 100);
+  assert.ok(bulkQueries.every((record) => record.bindings.length <= 100));
+  assert.equal(Math.max(...bulkQueries.map((record) => record.bindings.length)), 100);
 });
 
 test("playback session keys are partitioned by node even when Emby session ids match", () => {
@@ -6507,15 +7718,25 @@ test("playback session keys are partitioned by node even when Emby session ids m
     proxyPath: "/Sessions/Playing/Progress",
     clientIp: "203.0.113.10",
     request: new Request("https://proxy.test/Sessions/Playing/Progress", { method: "POST" }),
-    requestTraits: { isPlaybackProgressRequest: true }
+    requestTraits: { isPlaybackProgressRequest: true },
   });
   const transport = {
     preparedBodyMode: "buffered",
-    preparedBodyText: JSON.stringify({ SessionId: "shared-session", PlaySessionId: "shared-play", ItemId: "movie-1" }),
-    newHeaders: new Headers({ "Content-Type": "application/json" })
+    preparedBodyText: JSON.stringify({
+      SessionId: "shared-session",
+      PlaySessionId: "shared-play",
+      ItemId: "movie-1",
+    }),
+    newHeaders: new Headers({ "Content-Type": "application/json" }),
   };
-  const first = proxyService.resolvePlaybackProgressSessionKey(makeExecution("server-a"), transport);
-  const second = proxyService.resolvePlaybackProgressSessionKey(makeExecution("server-b"), transport);
+  const first = proxyService.resolvePlaybackProgressSessionKey(
+    makeExecution("server-a"),
+    transport,
+  );
+  const second = proxyService.resolvePlaybackProgressSessionKey(
+    makeExecution("server-b"),
+    transport,
+  );
   assert.equal(first.sessionKey, "server-a|session:shared-session");
   assert.equal(second.sessionKey, "server-b|session:shared-session");
   assert.notEqual(first.sessionKey, second.sessionKey);
@@ -6526,13 +7747,19 @@ test("playback session keys are partitioned by node even when Emby session ids m
   const deviceTransport = {
     preparedBodyMode: "buffered",
     preparedBodyText: JSON.stringify({ DeviceId: "device-strong-value", ItemId: "movie-device" }),
-    newHeaders: new Headers({ "Content-Type": "application/json" })
+    newHeaders: new Headers({ "Content-Type": "application/json" }),
   };
-  const device = proxyService.resolvePlaybackProgressSessionKey(makeExecution("server-a"), deviceTransport);
+  const device = proxyService.resolvePlaybackProgressSessionKey(
+    makeExecution("server-a"),
+    deviceTransport,
+  );
   assert.equal(device.sessionStrength, "weak");
   assert.match(device.sessionIdentityFingerprint, /^[0-9a-f]{16}$/);
   assert.match(device.sessionFingerprint, /^[0-9a-f]{16}$/);
-  assert.doesNotMatch(`${device.sessionIdentityFingerprint}:${device.sessionFingerprint}`, /device-strong-value|movie-device/);
+  assert.doesNotMatch(
+    `${device.sessionIdentityFingerprint}:${device.sessionFingerprint}`,
+    /device-strong-value|movie-device/,
+  );
 
   const makeFallbackExecution = (proxyPath) => ({
     ...makeExecution("server-a"),
@@ -6540,19 +7767,28 @@ test("playback session keys are partitioned by node even when Emby session ids m
     requestUrl: new URL(`https://proxy.test${proxyPath}`),
     request: new Request(`https://proxy.test${proxyPath}`, {
       method: "POST",
-      headers: { Authorization: "MediaBrowser Token=private", "X-Emby-Device-Id": "device-1" }
-    })
+      headers: { Authorization: "MediaBrowser Token=private", "X-Emby-Device-Id": "device-1" },
+    }),
   });
   const fallbackTransport = {
     preparedBodyMode: "buffered",
     preparedBodyText: JSON.stringify({ ItemId: "movie-1" }),
-    newHeaders: new Headers({ "Content-Type": "application/json" })
+    newHeaders: new Headers({ "Content-Type": "application/json" }),
   };
-  const started = proxyService.resolvePlaybackProgressSessionKey(makeFallbackExecution("/Sessions/Playing"), fallbackTransport);
-  const stopped = proxyService.resolvePlaybackProgressSessionKey(makeFallbackExecution("/Sessions/Playing/Stopped"), fallbackTransport);
+  const started = proxyService.resolvePlaybackProgressSessionKey(
+    makeFallbackExecution("/Sessions/Playing"),
+    fallbackTransport,
+  );
+  const stopped = proxyService.resolvePlaybackProgressSessionKey(
+    makeFallbackExecution("/Sessions/Playing/Stopped"),
+    fallbackTransport,
+  );
   assert.equal(started.sessionKey, stopped.sessionKey);
   assert.doesNotMatch(started.sessionKey, /private|device-1|movie-1/);
   assert.match(started.sessionIdentityFingerprint, /^[0-9a-f]{16}$/);
   assert.match(started.sessionFingerprint, /^[0-9a-f]{16}$/);
-  assert.doesNotMatch(`${started.sessionIdentityFingerprint}:${started.sessionFingerprint}`, /private|device-1|movie-1/);
+  assert.doesNotMatch(
+    `${started.sessionIdentityFingerprint}:${started.sessionFingerprint}`,
+    /private|device-1|movie-1/,
+  );
 });
