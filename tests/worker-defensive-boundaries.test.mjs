@@ -2171,6 +2171,85 @@ test("single-flight rejection clears the key for a later retry", async () => {
   assert.equal(isolateState.SingleFlightTasks.has("test:retry"), false);
 });
 
+test("media auth normalization targets the documented Emby and Jellyfin schemes", () => {
+  const jellyfinTokenOnly = proxyService.normalizeMediaAuthHeaders(
+    new Headers({ "X-Emby-Token": "token-jellyfin", "X-Emby-Device-Id": "device-1" }),
+    "jellyfin"
+  );
+  assert.equal(jellyfinTokenOnly.get("Authorization"), 'MediaBrowser Token="token-jellyfin"');
+  assert.equal(jellyfinTokenOnly.get("X-Emby-Authorization"), 'MediaBrowser Token="token-jellyfin"');
+  assert.equal(jellyfinTokenOnly.has("X-MediaBrowser-Authorization"), false);
+  assert.equal(jellyfinTokenOnly.get("X-Emby-Token"), "token-jellyfin");
+
+  const jellyfinRewrite = proxyService.normalizeMediaAuthHeaders(
+    new Headers({ Authorization: 'Emby Client="c", Device="d", DeviceId="i", Version="1", Token="t"' }),
+    "jellyfin"
+  );
+  assert.equal(
+    jellyfinRewrite.get("Authorization"),
+    'MediaBrowser Client="c", Device="d", DeviceId="i", Version="1", Token="t"'
+  );
+  assert.equal(jellyfinRewrite.has("X-MediaBrowser-Authorization"), false);
+
+  const embyTokenOnly = proxyService.normalizeMediaAuthHeaders(new Headers({ "X-Emby-Token": "token-emby" }), "emby");
+  assert.equal(embyTokenOnly.get("Authorization"), 'Emby Token="token-emby"');
+  assert.equal(embyTokenOnly.get("X-Emby-Authorization"), 'Emby Token="token-emby"');
+
+  const jellyfinBearer = proxyService.normalizeMediaAuthHeaders(new Headers({ Authorization: "Bearer bearer-token" }), "jellyfin");
+  assert.equal(jellyfinBearer.get("Authorization"), 'MediaBrowser Token="bearer-token"');
+
+  const autoTokenOnly = new Headers({ "X-Emby-Token": "token-auto" });
+  proxyService.normalizeMediaAuthHeaders(autoTokenOnly, "auto");
+  assert.equal(autoTokenOnly.has("Authorization"), false);
+  assert.equal(autoTokenOnly.get("X-Emby-Token"), "token-auto");
+
+  const passthrough = new Headers({ "X-Emby-Token": "token-passthrough" });
+  proxyService.normalizeMediaAuthHeaders(passthrough, "passthrough");
+  assert.equal(passthrough.has("Authorization"), false);
+  assert.equal(passthrough.get("X-Emby-Token"), "token-passthrough");
+});
+
+test("direct media redirects append the Jellyfin ApiKey query name only for Jellyfin nodes", () => {
+  const policy = { auth: { token: "redirect-token", deviceId: "redirect-device" } };
+  const jellyfinUrl = proxyService.appendMediaRedirectAuthToUrl(new URL("https://node.test/Videos/1/stream"), policy, "jellyfin");
+  assert.equal(jellyfinUrl.searchParams.get("ApiKey"), "redirect-token");
+  assert.equal(jellyfinUrl.searchParams.get("api_key"), null);
+  assert.equal(jellyfinUrl.searchParams.get("DeviceId"), "redirect-device");
+
+  const embyUrl = proxyService.appendMediaRedirectAuthToUrl(new URL("https://node.test/Videos/1/stream"), policy, "emby");
+  assert.equal(embyUrl.searchParams.get("api_key"), "redirect-token");
+  assert.equal(embyUrl.searchParams.get("ApiKey"), null);
+
+  const preAuthedUrl = proxyService.appendMediaRedirectAuthToUrl(
+    new URL("https://node.test/Videos/1/stream?api_key=preset"),
+    policy,
+    "jellyfin"
+  );
+  assert.equal(preAuthedUrl.searchParams.get("api_key"), "preset");
+  assert.equal(preAuthedUrl.searchParams.get("ApiKey"), null);
+});
+
+test("proxy request state synthesizes Jellyfin authorization from token headers", async () => {
+  const request = new Request("https://worker.test/Videos/1/stream", {
+    headers: { "X-Emby-Token": "transport-token", "X-Emby-Device-Id": "transport-device" }
+  });
+  const transport = await proxyService.buildProxyRequestState(
+    request,
+    { mediaAuthMode: "jellyfin" },
+    "/Videos/1/stream",
+    new URL(request.url),
+    "203.0.113.1",
+    {},
+    false,
+    [],
+    {}
+  );
+  assert.equal(transport.newHeaders.get("Authorization"), 'MediaBrowser Token="transport-token"');
+  assert.equal(transport.newHeaders.get("X-Emby-Authorization"), 'MediaBrowser Token="transport-token"');
+  assert.equal(transport.newHeaders.has("X-MediaBrowser-Authorization"), false);
+  assert.equal(transport.newHeaders.get("X-Emby-Token"), "transport-token");
+});
+
 test("runtime route context normalizes hostnames once and defers CORS headers", async () => {
   const request = new Request("https://Node.Media.Example.COM./Videos/1/stream", {
     headers: { Origin: "https://client.test" }

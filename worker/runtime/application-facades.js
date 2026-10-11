@@ -15011,12 +15011,19 @@ function evaluateMediaClientRedirectAuthPolicy(headers) {
 		auth
 	};
 }
-function appendMediaRedirectAuthToUrl(targetUrl, headersOrPolicy) {
+function appendMediaRedirectAuthToUrl(targetUrl, headersOrPolicy, mediaAuthMode = "") {
 	const safeUrl = targetUrl instanceof URL ? new URL(targetUrl.toString()) : new URL(String(targetUrl || ""));
 	const auth = (headersOrPolicy && typeof headersOrPolicy === "object" && "auth" in headersOrPolicy ? headersOrPolicy : { auth: extractMediaRedirectAuth(headersOrPolicy) }).auth || {};
-	if (auth.token && !hasRedirectQueryAlias(safeUrl, MEDIA_REDIRECT_AUTH_QUERY_KEYS)) safeUrl.searchParams.set("api_key", auth.token);
+	// Jellyfin 10.10+ only reads ApiKey once legacy authorization is disabled; Emby and legacy Jellyfin read api_key.
+	const tokenQueryKey = normalizeNodeMediaAuthMode(mediaAuthMode) === "jellyfin" ? "ApiKey" : "api_key";
+	if (auth.token && !hasRedirectQueryAlias(safeUrl, MEDIA_REDIRECT_AUTH_QUERY_KEYS)) safeUrl.searchParams.set(tokenQueryKey, auth.token);
 	if (auth.deviceId && !hasRedirectQueryAlias(safeUrl, MEDIA_REDIRECT_DEVICE_QUERY_KEYS)) safeUrl.searchParams.set("DeviceId", auth.deviceId);
 	return safeUrl;
+}
+function buildMediaAuthorizationFromToken(scheme, token = "") {
+	const safeToken = String(token || "").trim().replace(/["\\]/g, "");
+	if (!safeToken) return "";
+	return `${scheme === "emby" ? "Emby" : "MediaBrowser"} Token="${safeToken}"`;
 }
 function normalizeMediaAuthHeaders(headers, nodeMediaAuthMode = "auto") {
 	const mediaAuthMode = normalizeNodeMediaAuthMode(nodeMediaAuthMode);
@@ -15027,22 +15034,24 @@ function normalizeMediaAuthHeaders(headers, nodeMediaAuthMode = "auto") {
 	const standardScheme = getMediaAuthorizationScheme(standardAuthorization);
 	const mediaBrowserScheme = getMediaAuthorizationScheme(mediaBrowserAuthorization);
 	const legacyEmbyScheme = getMediaAuthorizationScheme(legacyEmbyAuthorization);
+	const fixedScheme = mediaAuthMode === "emby" ? "emby" : mediaAuthMode === "jellyfin" ? "mediabrowser" : "";
 	let canonicalAuthorization = standardScheme ? standardAuthorization : mediaBrowserScheme ? mediaBrowserAuthorization : legacyEmbyScheme ? legacyEmbyAuthorization : "";
+	if (!canonicalAuthorization && fixedScheme) {
+		// Jellyfin 10.10+/12 disables legacy token headers by default; surface a documented Authorization scheme when only a token carrier is present.
+		const token = getLooseHeaderValue(headers, "X-Emby-Token").trim() || getLooseHeaderValue(headers, "X-MediaBrowser-Token").trim() || getLooseHeaderValue(headers, "X-Emby-Auth-Token").trim() || getLooseHeaderValue(headers, "X-MediaBrowser-Auth-Token").trim();
+		const bearerMatch = /^Bearer\s+(.+)$/i.exec(standardAuthorization);
+		canonicalAuthorization = buildMediaAuthorizationFromToken(fixedScheme, token || (bearerMatch ? bearerMatch[1] : ""));
+	}
 	if (!canonicalAuthorization) return headers;
-	const targetScheme = mediaAuthMode === "emby" ? "emby" : mediaAuthMode === "jellyfin" ? "mediabrowser" : standardScheme || mediaBrowserScheme || legacyEmbyScheme || "";
+	const targetScheme = fixedScheme || standardScheme || mediaBrowserScheme || legacyEmbyScheme || "";
 	canonicalAuthorization = rewriteMediaAuthorizationScheme(canonicalAuthorization, targetScheme);
 	headers.set("Authorization", canonicalAuthorization);
-	if (targetScheme === "mediabrowser") {
-		headers.set("X-MediaBrowser-Authorization", canonicalAuthorization);
-		headers.delete("X-Emby-Authorization");
-		return headers;
-	}
-	if (targetScheme === "emby") {
-		headers.set("X-Emby-Authorization", canonicalAuthorization);
-		headers.delete("X-MediaBrowser-Authorization");
-	}
+	// X-Emby-Authorization is the legacy alias accepted by both Emby and Jellyfin; X-MediaBrowser-Authorization is read by neither.
+	headers.set("X-Emby-Authorization", canonicalAuthorization);
+	headers.delete("X-MediaBrowser-Authorization");
 	return headers;
 }
+
 function stripSensitiveProxyAuthHeaders(headers, options = {}) {
 	if (!(headers instanceof Headers)) return headers;
 	const dropTokenHeaders = options.dropTokenHeaders !== false;
@@ -16992,7 +17001,7 @@ function defineProxyCacheDeliveryMethods(dependencies = {}, kernel = {}) {
 				execution.directRedirectAuthReason = redirectAuthPolicy.reason || "direct_transport_incompatible";
 				throw kernel.createDirectTransportIncompatibleError(execution);
 			}
-			const authedRedirectUrl = appendMediaRedirectAuthToUrl(kernel.resolveEntryDirectTargetUrl(execution, activeTargetBase), redirectAuthPolicy);
+			const authedRedirectUrl = appendMediaRedirectAuthToUrl(kernel.resolveEntryDirectTargetUrl(execution, activeTargetBase), redirectAuthPolicy, execution.effectiveMediaAuthMode);
 			const syntheticRedirect = new Response(null, {
 				status: 307,
 				statusText: "Temporary Redirect"
@@ -17224,7 +17233,7 @@ function defineProxyUpstreamDeliveryMethods(dependencies = {}, kernel = {}) {
 						linkVariant: execution.linkVariant,
 						entryMode: execution.entryMode
 					}) || nextUrl;
-					directRedirectUrl = redirectDecision.preserveWorkerProxy === true ? rawDirectRedirectUrl : appendMediaRedirectAuthToUrl(rawDirectRedirectUrl, transport.clientRedirectAuthPolicy || transport.newHeaders);
+					directRedirectUrl = redirectDecision.preserveWorkerProxy === true ? rawDirectRedirectUrl : appendMediaRedirectAuthToUrl(rawDirectRedirectUrl, transport.clientRedirectAuthPolicy || transport.newHeaders, execution.effectiveMediaAuthMode);
 					kernel.finalizeRedirectTrace(redirectTrace, {
 						terminalMode: "client_redirect",
 						finalStatus: currentRedirectStatus,
@@ -18901,7 +18910,7 @@ function definePlaybackExecutionCacheMethods(dependencies = {}, kernel = {}) {
 			const auth = extractMediaRedirectAuth(headers);
 			const cookieHeader = stripCookieHeaderNames(getLooseHeaderValue(headers, "Cookie"), INTERNAL_PROXY_COOKIE_NAMES);
 			return hashStableStringParts([
-				requestUrl ? hashStableText(requestUrl.searchParams.get("api_key") || requestUrl.searchParams.get("X-Emby-Token") || requestUrl.searchParams.get("X-MediaBrowser-Token") || "") : "",
+				requestUrl ? hashStableText(requestUrl.searchParams.get("api_key") || requestUrl.searchParams.get("ApiKey") || requestUrl.searchParams.get("X-Emby-Token") || requestUrl.searchParams.get("X-MediaBrowser-Token") || "") : "",
 				auth?.token ? hashStableText(auth.token) : "", auth?.deviceId ? hashStableText(auth.deviceId) : "",
 				getLooseHeaderValue(headers, "Authorization") ? hashStableText(getLooseHeaderValue(headers, "Authorization")) : "", getLooseHeaderValue(headers, "X-Emby-Authorization") ? hashStableText(getLooseHeaderValue(headers, "X-Emby-Authorization")) : "",
 				getLooseHeaderValue(headers, "X-MediaBrowser-Authorization") ? hashStableText(getLooseHeaderValue(headers, "X-MediaBrowser-Authorization")) : "",
@@ -20534,6 +20543,8 @@ function defineProxyTransportMethods(dependencies = {}, kernel = {}) {
 		},
 		sanitizePlaybackInfoSerializedResponseHeaders,
 		parsePlaybackInfoRootObject,
+		normalizeMediaAuthHeaders,
+		appendMediaRedirectAuthToUrl,
 		buildPlaybackInfoContractErrorState(execution, upstreamState, reason = "invalid_payload", details = null) {
 			const response = upstreamState?.response;
 			execution.playbackInfoRewrite = "rejected";
