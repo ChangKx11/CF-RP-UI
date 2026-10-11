@@ -17,7 +17,11 @@ export function guardApiResponseMime(execution, upstreamState, options = {}) {
 	if (explicitDocumentRequest) return upstreamState;
 	if (!isHtmlHttpMediaType(contentType)) return upstreamState;
 	const createErrorState = typeof options.buildErrorState === "function" ? options.buildErrorState : buildProxyErrorState;
+	const upstreamStatus = Number(response.status) || 0;
+	const preserveUpstreamStatus = upstreamStatus >= 400;
 	return createErrorState(execution, upstreamState, {
+		status: preserveUpstreamStatus ? upstreamStatus : void 0,
+		statusText: preserveUpstreamStatus ? String(response.statusText || "").trim() || void 0 : void 0,
 		message: "Upstream API returned an HTML document instead of API data.",
 		guardHeader: "X-Proxy-Mime-Guard",
 		guardValue: "html-document",

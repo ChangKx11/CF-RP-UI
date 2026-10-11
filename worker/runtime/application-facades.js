@@ -18282,7 +18282,46 @@ function defineProxyMetadataResponseMethods(dependencies = {}, kernel = {}) {
 			if (state.protocolFallback !== true) return false;
 			if (state.allowAutomaticRetry !== true) return false;
 			if (state.preparedBodyMode === "stream") return false;
+			if (state.execution?.requestTraits?.canStripAuthOnProtocolFallback !== true) return false;
 			return true;
+		},
+		async resolveProtocolFallbackRetry(upstream, response, retry) {
+			let retryUpstream = null;
+			let retryError = null;
+			try {
+				retryUpstream = await retry();
+			} catch (error) {
+				retryError = error;
+			}
+			if (retryError && isAbortLikeError(retryError)) {
+				try {
+					response.body?.cancel?.();
+				} catch {}
+				try {
+					upstream.releaseFetchController?.();
+				} catch {}
+				throw retryError;
+			}
+			const retryResponse = retryUpstream?.response || null;
+			if (!retryError && retryResponse && (retryResponse.status === 101 || retryResponse.status < 400)) {
+				try {
+					response.body?.cancel?.();
+				} catch {}
+				try {
+					upstream.releaseFetchController?.();
+				} catch {}
+				return retryUpstream;
+			}
+			if (retryResponse) try {
+				retryResponse.body?.cancel?.();
+			} catch {}
+			try {
+				retryUpstream?.releaseFetchController?.();
+			} catch {}
+			return {
+				...upstream,
+				protocolFallbackRetry: true
+			};
 		},
 		resolveResponseStreamIdleTimeoutMs(requestTraits) {
 			if (requestTraits?.isManifest === true) return Config.Defaults.ProxyPlaylistIdleTimeoutMs;
@@ -18573,17 +18612,11 @@ function defineProxyUpstreamFetchMethods(dependencies = {}, kernel = {}) {
 						...state,
 						isRetry: effectiveRetry
 					})) {
-						try {
-							response.body?.cancel?.();
-						} catch {}
-						try {
-							upstream.releaseFetchController?.();
-						} catch {}
-						return await kernel.fetchAbsoluteWithRetryLoop({
+						return await kernel.resolveProtocolFallbackRetry(upstream, response, () => kernel.fetchAbsoluteWithRetryLoop({
 							...state,
 							isRetry: true,
 							protocolFallbackRetry: true
-						});
+						}));
 					}
 					const isLastPass = pass === totalPasses - 1;
 					if (state.allowAutomaticRetry !== true || !state.retryableStatuses.has(response.status) || isLastPass) return {
@@ -18638,17 +18671,11 @@ function defineProxyUpstreamFetchMethods(dependencies = {}, kernel = {}) {
 						...state,
 						isRetry: effectiveRetry
 					})) {
-						try {
-							response.body?.cancel?.();
-						} catch {}
-						try {
-							upstream.releaseFetchController?.();
-						} catch {}
-						return await kernel.fetchUpstreamWithRetryLoop({
+						return await kernel.resolveProtocolFallbackRetry(upstream, response, () => kernel.fetchUpstreamWithRetryLoop({
 							...state,
 							isRetry: true,
 							protocolFallbackRetry: true
-						});
+						}));
 					}
 					const isLastTarget = index === retryTargetRecords.length - 1;
 					const isLastPass = pass === totalPasses - 1;

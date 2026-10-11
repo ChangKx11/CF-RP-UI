@@ -2605,6 +2605,79 @@ test("blocked cross-origin image redirects fall back to a client-visible redirec
   assert.equal(fetched[1], "https://cdn.other.test/images/cover.jpg");
 });
 
+test("upstream 403 reaches the client instead of a speculative fallback status", async () => {
+  const apiCalls = [];
+  await withWorkerGlobals({
+    fetch: async (url) => {
+      apiCalls.push(String(url));
+      return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
+    }
+  }, async () => {
+    const request = new Request("https://worker.test/node/secret/Items/1");
+    const response = await proxyService.handle(request, { target: "https://origin.test" }, "/Items/1", "node", "secret", {}, { waitUntil() {} }, { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } });
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get("X-Proxy-Mime-Guard"), null);
+    assert.equal(await response.text(), JSON.stringify({ error: "Forbidden" }));
+  });
+  assert.deepEqual(apiCalls, ["https://origin.test/Items/1"]);
+
+  const mediaCalls = [];
+  await withWorkerGlobals({
+    fetch: async (url, init) => {
+      mediaCalls.push(`${String(url)} ${String(init?.method || "GET")}`);
+      if (mediaCalls.length === 1) return new Response("forbidden", { status: 403 });
+      return new Response("unavailable", { status: 503 });
+    }
+  }, async () => {
+    const request = new Request("https://worker.test/node/secret/Videos/1/stream");
+    const response = await proxyService.handle(request, { target: "https://origin.test" }, "/Videos/1/stream", "node", "secret", {}, { waitUntil() {} }, { requestUrl: new URL(request.url), runtimeConfig: { rateLimitRpm: 0 } });
+    assert.equal(response.status, 403);
+    assert.equal(await response.text(), "forbidden");
+  });
+  assert.deepEqual(mediaCalls, [
+    "https://origin.test/Videos/1/stream GET",
+    "https://origin.test/Videos/1/stream GET"
+  ]);
+});
+
+test("API MIME guard preserves an upstream HTML error status", async () => {
+  const upstreamState = {
+    response: new Response("<!doctype html><html><body>Access denied</body></html>", {
+      status: 403,
+      statusText: "Forbidden",
+      headers: { "Content-Type": "text/html; charset=utf-8" }
+    })
+  };
+  const result = await proxyService.guardApiResponseMime({
+    request: new Request("https://worker.test/alpha/Users", { headers: { Accept: "application/json" } }),
+    requestMethod: "GET",
+    requestTraits: { isApiRequest: true }
+  }, upstreamState);
+
+  assert.equal(result.response.status, 403);
+  assert.equal(result.response.statusText, "Forbidden");
+  assert.equal(result.response.headers.get("X-Proxy-Mime-Guard"), "html-document");
+  assert.deepEqual(await result.response.json(), {
+    error: "Forbidden",
+    code: 403,
+    message: "Upstream API returned an HTML document instead of API data.",
+    details: { upstreamStatus: 403, contentType: "text/html" }
+  });
+
+  const successHtml = await proxyService.guardApiResponseMime({
+    request: new Request("https://worker.test/alpha/Users", { headers: { Accept: "application/json" } }),
+    requestMethod: "GET",
+    requestTraits: { isApiRequest: true }
+  }, {
+    response: new Response("<!doctype html><html><body>Frontend</body></html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" }
+    })
+  });
+  assert.equal(successHtml.response.status, 502);
+  assert.equal(successHtml.response.statusText, "Bad Gateway");
+});
+
 test("runtime route context normalizes hostnames once and defers CORS headers", async () => {
   const request = new Request("https://Node.Media.Example.COM./Videos/1/stream", {
     headers: { Origin: "https://client.test" }
