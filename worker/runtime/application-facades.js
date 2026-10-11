@@ -23201,6 +23201,7 @@ function defineProxyUpstreamDeliveryMethods(dependencies = {}, kernel = {}) {
       let finalUrl = upstream.finalUrl;
       let releaseFetchController = upstream.releaseFetchController;
       let protocolFallbackRetry = upstream.protocolFallbackRetry === true;
+      let protocolFallbackRetryFailed = upstream.protocolFallbackRetryFailed === true;
       let proxiedExternalRedirect = false;
       let directRedirectUrl = null;
       let redirectHop = 0;
@@ -23394,6 +23395,8 @@ function defineProxyUpstreamDeliveryMethods(dependencies = {}, kernel = {}) {
         releaseFetchController = redirectUpstream.releaseFetchController;
         protocolFallbackRetry =
           protocolFallbackRetry || redirectUpstream.protocolFallbackRetry === true;
+        protocolFallbackRetryFailed =
+          protocolFallbackRetryFailed || redirectUpstream.protocolFallbackRetryFailed === true;
         redirectMethod = nextMethod;
         redirectBodyMode = nextBodyMode;
         redirectBody = nextBody;
@@ -23470,6 +23473,7 @@ function defineProxyUpstreamDeliveryMethods(dependencies = {}, kernel = {}) {
         proxiedExternalRedirect,
         directRedirectUrl,
         protocolFallbackRetry,
+        protocolFallbackRetryFailed,
         redirectTrace,
       };
     },
@@ -23604,7 +23608,8 @@ function defineProxyUpstreamDeliveryMethods(dependencies = {}, kernel = {}) {
                   ? "playback_relative_fallback"
                   : finalUpstreamState.redirectTrace?.terminalMode || "proxied_follow",
                 protocolFailureReason:
-                  finalUpstreamState.protocolFallbackRetry === true
+                  finalUpstreamState.protocolFallbackRetry === true ||
+                  finalUpstreamState.protocolFallbackRetryFailed === true
                     ? kernel.classifyProtocolFailureReason("protocol_fallback", {
                         upstreamStatus: finalStatus,
                         protocolFallbackRetry: true,
@@ -24851,7 +24856,8 @@ function defineProxyMetadataResponseMethods(dependencies = {}, kernel = {}) {
       if (state.protocolFallback !== true) return false;
       if (state.allowAutomaticRetry !== true) return false;
       if (state.preparedBodyMode === "stream") return false;
-      if (state.execution?.requestTraits?.canStripAuthOnProtocolFallback !== true) return false;
+      // 重定向 loop 构造的 state 不含 execution，只能用调用方统一传入的该字段。
+      if (state.stripAuthOnProtocolFallback !== true) return false;
       return true;
     },
     async resolveProtocolFallbackRetry(upstream, response, retry) {
@@ -24892,9 +24898,19 @@ function defineProxyMetadataResponseMethods(dependencies = {}, kernel = {}) {
       try {
         retryUpstream?.releaseFetchController?.();
       } catch {}
+      const retryStatus = Number(retryResponse?.status) || 0;
+      logRuntimeFailure(
+        "proxy.protocol_fallback_retry_failed",
+        retryError || new Error(`protocol fallback retry returned ${retryStatus || "no_response"}`),
+        {
+          upstreamStatus: Number(response?.status) || 0,
+          protocolFallbackRetryStatus: retryStatus,
+        },
+      );
       return {
         ...upstream,
-        protocolFallbackRetry: true,
+        protocolFallbackRetry: false,
+        protocolFallbackRetryFailed: true,
       };
     },
     resolveResponseStreamIdleTimeoutMs(requestTraits) {
@@ -24968,7 +24984,8 @@ function defineProxyMetadataResponseMethods(dependencies = {}, kernel = {}) {
               redirectMode: "proxied_follow",
               decisionReason: "proxied_follow",
               protocolFailureReason:
-                upstreamState.protocolFallbackRetry === true
+                upstreamState.protocolFallbackRetry === true ||
+                upstreamState.protocolFallbackRetryFailed === true
                   ? kernel.classifyProtocolFailureReason("protocol_fallback", {
                       protocolFallbackRetry: true,
                       upstreamStatus: upstreamState.response.status,

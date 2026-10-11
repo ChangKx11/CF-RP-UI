@@ -3141,6 +3141,119 @@ test("upstream 403 reaches the client instead of a speculative fallback status",
   ]);
 });
 
+test("403 protocol fallback stays available for the redirect-loop state shape", async () => {
+  // 重定向 loop 重建 state 时只带 stripAuthOnProtocolFallback，不带 execution。
+  const redirectState = {
+    isRetry: false,
+    protocolFallback: true,
+    allowAutomaticRetry: true,
+    preparedBodyMode: null,
+    stripAuthOnProtocolFallback: true,
+  };
+  assert.equal(
+    proxyService.shouldRetryWithProtocolFallback(
+      new Response("forbidden", { status: 403 }),
+      redirectState,
+    ),
+    true,
+  );
+  assert.equal(
+    proxyService.shouldRetryWithProtocolFallback(new Response("forbidden", { status: 403 }), {
+      ...redirectState,
+      stripAuthOnProtocolFallback: false,
+    }),
+    false,
+    "requests that cannot strip auth must not trigger a protocol fallback retry",
+  );
+
+  const originalPerformFetchWithTimeout = proxyService.performFetchWithTimeout;
+  let fetchCount = 0;
+  proxyService.performFetchWithTimeout = async () => {
+    fetchCount += 1;
+    return {
+      response: new Response(fetchCount === 1 ? "forbidden" : "ok", {
+        status: fetchCount === 1 ? 403 : 200,
+      }),
+      finalUrl: new URL("https://origin.test/Videos/1/stream"),
+      releaseFetchController() {},
+    };
+  };
+  try {
+    const result = await proxyService.fetchAbsoluteWithRetryLoop({
+      absoluteUrl: new URL("https://origin.test/Videos/1/stream"),
+      buildFetchOptions: {},
+      fetchOptions: { method: "GET", bodyMode: "none", body: null },
+      retryableStatuses: new Set([500, 502, 503, 504]),
+      maxExtraAttempts: 0,
+      ...redirectState,
+    });
+    assert.equal(fetchCount, 2, "a post-redirect 403 must still trigger a protocol fallback retry");
+    assert.equal(result.response.status, 200);
+  } finally {
+    proxyService.performFetchWithTimeout = originalPerformFetchWithTimeout;
+  }
+});
+
+test("failed protocol fallback surfaces the original response and records the retry outcome", async () => {
+  const warnings = [];
+  let retryBodyCancelled = false;
+  let originalReleased = false;
+  await withWorkerGlobals(
+    { console: { ...console, warn: (...args) => warnings.push(args) } },
+    async () => {
+      const upstream = {
+        response: new Response("forbidden", { status: 403 }),
+        finalUrl: new URL("https://origin.test/Videos/1/stream"),
+        releaseFetchController() {
+          originalReleased = true;
+        },
+      };
+      const result = await proxyService.resolveProtocolFallbackRetry(
+        upstream,
+        upstream.response,
+        async () => ({
+          response: new Response(
+            new ReadableStream({
+              cancel() {
+                retryBodyCancelled = true;
+              },
+            }),
+            { status: 503 },
+          ),
+          finalUrl: new URL("https://origin.test/Videos/1/stream"),
+          releaseFetchController() {},
+        }),
+      );
+      assert.equal(result.response, upstream.response);
+      assert.equal(result.response.status, 403);
+      assert.equal(
+        result.protocolFallbackRetry,
+        false,
+        "a failed fallback must not be reported as a protocol fallback response",
+      );
+      assert.equal(
+        result.protocolFallbackRetryFailed,
+        true,
+        "the failed fallback attempt must still be recorded for diagnostics",
+      );
+      assert.equal(retryBodyCancelled, true, "the abandoned retry response body must be cancelled");
+      assert.equal(
+        originalReleased,
+        false,
+        "the surfaced original response must stay releasable downstream",
+      );
+    },
+  );
+  const fallbackWarnings = warnings.filter((args) =>
+    String(args[0]).includes("proxy.protocol_fallback_retry_failed"),
+  );
+  assert.equal(fallbackWarnings.length, 1, "the failed retry must be reported exactly once");
+  assert.deepEqual(fallbackWarnings[0][1], {
+    upstreamStatus: 403,
+    protocolFallbackRetryStatus: 503,
+  });
+});
+
 test("API MIME guard preserves an upstream HTML error status", async () => {
   const upstreamState = {
     response: new Response("<!doctype html><html><body>Access denied</body></html>", {
