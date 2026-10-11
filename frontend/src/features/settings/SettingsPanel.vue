@@ -1949,6 +1949,10 @@ function resolveStatusLabel() {
               class="field-input"
               autocomplete="new-password"
             />
+            <span class="field-hint"
+              >用于「TMDB 聚合」。两项都留空时回退到 Worker 环境变量 TMDB_API_READ_TOKEN /
+              TMDB_API_KEY；只要填写任意一项，环境变量凭证会被整体忽略。</span
+            >
           </label>
 
           <label class="field-shell">

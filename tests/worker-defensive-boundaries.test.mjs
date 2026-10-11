@@ -2871,6 +2871,41 @@ test("TMDB provider id search treats config credentials as a group over env", as
   );
 });
 
+test("TMDB lookup warns once when account-settings credentials shadow env credentials", async () => {
+  isolateState.TmdbLookupCache.clear();
+  isolateState.TmdbCredentialOverrideWarned = false;
+  const warnings = [];
+  let fetchCount = 0;
+  await withWorkerGlobals(
+    {
+      fetch: async () => {
+        fetchCount += 1;
+        return new Response(JSON.stringify({ title: "Shadowed" }), { status: 200 });
+      },
+      console: { ...console, warn: (...args) => warnings.push(args) },
+    },
+    async () => {
+      const source = new URL(
+        "https://worker.test/Items?AnyProviderIdEquals=tmdb.905&IncludeItemTypes=Movie",
+      );
+      const converted = await convertTmdbRequestFromUrl(
+        source,
+        { TMDB_API_READ_TOKEN: "env-token" },
+        { tmdbApiV3Key: "config-v3-key" },
+      );
+      assert.equal(converted.searchParams.get("SearchTerm"), "Shadowed");
+      await convertTmdbRequestFromUrl(
+        source,
+        { TMDB_API_READ_TOKEN: "env-token" },
+        { tmdbApiV3Key: "config-v3-key" },
+      );
+    },
+  );
+  assert.equal(fetchCount, 1, "the repeated lookup must be served from cache");
+  assert.equal(warnings.length, 1, "the shadowed env credential must be reported exactly once");
+  assert.match(String(warnings[0][0]), /tmdb\.credentials_override/);
+});
+
 test("TMDB provider id search falls back to env credentials when config is empty", async () => {
   isolateState.TmdbLookupCache.clear();
   const fetched = [];

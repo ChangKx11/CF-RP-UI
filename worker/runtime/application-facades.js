@@ -142,6 +142,7 @@ var runtimeState = {
   OpsStatusWriteChain: Promise.resolve(),
   NodeIndexMutationChain: Promise.resolve(),
   InitCheckWarnedFingerprints: /* @__PURE__ */ new Set(),
+  TmdbCredentialOverrideWarned: false,
 };
 for (const key of ["CleanupState"])
   Object.defineProperty(runtimeState, key, {
@@ -25528,12 +25529,31 @@ async function convertTmdbRequestFromUrl(requestUrl, env = {}, config = {}) {
   if (!tmdbMatch) return null;
   const configReadToken = String(config?.tmdbApiReadToken || "").trim();
   const configApiKey = String(config?.tmdbApiV3Key || "").trim();
+  const envReadToken = String(env?.TMDB_API_READ_TOKEN || "").trim();
+  const envApiKey = String(env?.TMDB_API_KEY || "").trim();
   const useConfigCredentials = Boolean(configReadToken || configApiKey);
-  const readToken = useConfigCredentials
-    ? configReadToken
-    : String(env?.TMDB_API_READ_TOKEN || "").trim();
-  const apiKey = useConfigCredentials ? configApiKey : String(env?.TMDB_API_KEY || "").trim();
+  const readToken = useConfigCredentials ? configReadToken : envReadToken;
+  const apiKey = useConfigCredentials ? configApiKey : envApiKey;
   if (!readToken && !apiKey) return null;
+  // 账号设置凭证是整组生效的：只在面板填了任意一项，env 凭证就被整体忽略。
+  // 每个 isolate 只显式记录一次，避免 env 凭证静默失效而无人察觉，也避免逐请求刷屏。
+  if (
+    useConfigCredentials &&
+    (envReadToken || envApiKey) &&
+    runtimeState.TmdbCredentialOverrideWarned !== true
+  ) {
+    runtimeState.TmdbCredentialOverrideWarned = true;
+    logRuntimeFailure(
+      "tmdb.credentials_override",
+      "account settings TMDB credentials override TMDB_* environment variables",
+      {
+        configReadToken: configReadToken ? "set" : "unset",
+        configApiKey: configApiKey ? "set" : "unset",
+        envReadToken: envReadToken ? "set" : "unset",
+        envApiKey: envApiKey ? "set" : "unset",
+      },
+    );
+  }
   const itemTypes = String(requestUrl.searchParams.get("IncludeItemTypes") || "").toLowerCase();
   if (itemTypes.includes("episode") || itemTypes.includes("season")) return null;
   const isMovie = itemTypes.includes("movie");
