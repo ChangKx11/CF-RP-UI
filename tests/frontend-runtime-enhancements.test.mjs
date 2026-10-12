@@ -337,7 +337,7 @@ test("a stale monthly traffic fallback stays visible but remains retryable", asy
   assert.equal(isDashboardMonthlyTrafficCacheFresh(app), false);
 });
 
-test("backup view exposes only the paired Worker and HTML upload flow", async () => {
+test("admin runtime keeps scoped migration, node-only, and release contracts", async () => {
   const template = await readFile(
     new URL("../frontend/admin-runtime.template.html", import.meta.url),
     "utf8",
@@ -356,6 +356,23 @@ test("backup view exposes only the paired Worker and HTML upload flow", async ()
     "utf8",
   );
   assert.match(template, /id:"admin-worker-html-update-root"/);
+  assert.match(template, /id:"import-full-file"/);
+  assert.match(template, /id:"import-settings-secrets-file"/);
+  assert.match(template, /id:"import-settings-file"/);
+  assert.match(template, /App\.importFull/);
+  assert.match(template, /App\.exportFull/);
+  assert.match(template, /App\.exportSettingsWithSecrets/);
+  assert.match(template, /App\.exportSettings\(/);
+  assert.match(template, /\\u8fc1\\u79fb\\u4e0e\\u5907\\u4efd/);
+  assert.doesNotMatch(template, /Settings Only/);
+  assert.match(generatedIndex, /id:"import-full-file"/);
+  assert.match(generatedIndex, /id:"import-settings-secrets-file"/);
+  assert.match(generatedIndex, /id:"import-settings-file"/);
+  assert.match(ADMIN_RUNTIME_ENHANCEMENT_SCRIPT, /app\.exportSettingsWithSecrets = async function/);
+  assert.match(template, /\\u8282\\u70b9\\u5217\\u8868\\u64cd\\u4f5c/);
+  assert.match(template, /id:"import-nodes-file"/);
+  assert.match(template, /App\.importNodes/);
+  assert.match(template, /App\.exportNodes/);
   assert.match(
     generatedIndex,
     /_createCommentVNode\("config snapshots removed",!0\),App\.isSettingsExpertMode/,
@@ -548,9 +565,21 @@ test("daily report kind checkboxes and the master switch stay in sync", async ()
   );
   const handlerSource =
     template.match(
-      /handleDailyReportEnabledToggle\(\)\{[\s\S]*?\},handleDailyReportKindToggle\(\)\{[\s\S]*?\}/,
+      /handleDailyReportEnabledToggle\(\)\{[\s\S]*?\},handleDailyReportKindToggle\(r\)\{[\s\S]*?\}/,
     )?.[0] || "";
   assert.ok(handlerSource, "daily report toggle handlers must be extractable");
+  assert.equal(
+    (template.match(/disabled:!App\.settingsForm\.tgDailyReportEnabled/g) || []).length,
+    3,
+  );
+  assert.equal(
+    (
+      template.match(
+        /"onChange","disabled"\]\),\[\[_vModelCheckbox,App\.settingsForm\.tgDailyReport/g,
+      ) || []
+    ).length,
+    3,
+  );
 
   const createApp = (checked) => {
     const document = {
@@ -584,8 +613,17 @@ test("daily report kind checkboxes and the master switch stay in sync", async ()
   assert.equal(masterOff.settingsForm.tgDailyReportKvEnabled, true);
 
   const kindOn = createApp({ "cfg-tg-daily-report-d1-enabled": true });
-  kindOn.handleDailyReportKindToggle();
+  kindOn.handleDailyReportKindToggle({
+    target: { id: "cfg-tg-daily-report-d1-enabled", checked: true },
+  });
   assert.equal(kindOn.settingsForm.tgDailyReportEnabled, true);
+
+  const lastKind = createApp({});
+  lastKind.settingsForm.tgDailyReportKvEnabled = true;
+  const kvTarget = { id: "cfg-tg-daily-report-kv-enabled", checked: false };
+  lastKind.handleDailyReportKindToggle({ target: kvTarget });
+  assert.equal(lastKind.settingsForm.tgDailyReportKvEnabled, true);
+  assert.equal(kvTarget.checked, true);
 });
 
 test("account settings expose TMDB aggregation credentials", async () => {
