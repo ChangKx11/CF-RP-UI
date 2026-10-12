@@ -18242,10 +18242,24 @@ function defineD1TidyMethods(dependencies = {}, kernel = {}) {
           schema: statusBefore,
         };
       }
-      const statusBefore = await kernel.getD1SchemaReadiness(db, {
+      let statusBefore = await kernel.getD1SchemaReadiness(db, {
         allowAttestedFastPath: true,
         env,
       });
+      if (statusBefore.schemaReady !== true) {
+        const repairPlan = await kernel.buildD1SchemaRepairPlan(db);
+        if (repairPlan.phase === "safe") {
+          await kernel.initializeD1Database(db, {
+            includeFts: true,
+            env,
+            repairMode: "safe",
+          });
+          statusBefore = await kernel.getD1SchemaReadiness(db, {
+            allowAttestedFastPath: true,
+            env,
+          });
+        }
+      }
       if (statusBefore.schemaReady !== true) {
         const error = /* @__PURE__ */ new Error("D1 schema is not initialized");
         error.code = "D1_SCHEMA_NOT_READY";
@@ -21388,7 +21402,7 @@ function buildLogQueryPlanner(dependencies = {}) {
           return {
             errorResponse: jsonError(
               "LOG_FTS_NOT_READY",
-              "FTS5 虚拟表尚未初始化，请先点击“初始化 FTS5”",
+              "FTS5 虚拟表尚未初始化，请先点击“初始化日志表”",
               400,
               {
                 searchMode: "fts",
@@ -21683,7 +21697,7 @@ function buildLogQueryPlanner(dependencies = {}) {
           return {
             errorResponse: jsonError(
               "LOG_FTS_NOT_READY",
-              "FTS5 虚拟表尚未初始化，请先点击“初始化 FTS5”",
+              "FTS5 虚拟表尚未初始化，请先点击“初始化日志表”",
               400,
               { searchMode },
             ),
@@ -28684,6 +28698,27 @@ function defineAnalyticsStatsMethods(dependencies = {}, kernel = {}) {
         endTs,
       };
     },
+    getLegacyLogsFtsTriggerNames() {
+      return new Set(
+        [
+          String(kernel.LOGS_FTS_INSERT_TRIGGER || "").toLowerCase(),
+          `${kernel.LOGS_TABLE}_ai`,
+          `${kernel.LOGS_TABLE}_au`,
+          `${kernel.LOGS_TABLE}_ad`,
+          `${kernel.LOGS_FTS_TABLE}_ai`,
+          `${kernel.LOGS_FTS_TABLE}_au`,
+          `${kernel.LOGS_FTS_TABLE}_ad`,
+        ].map((name) => String(name || "").toLowerCase()),
+      );
+    },
+    isLogsFtsSyncTrigger(row) {
+      const name = String(row?.name || "").trim();
+      if (!name) return false;
+      if (kernel.getLegacyLogsFtsTriggerNames().has(name.toLowerCase())) return true;
+      return normalizeSqlIdentifierSearchText(row?.sql || "").includes(
+        kernel.LOGS_FTS_TABLE.toLowerCase(),
+      );
+    },
     async dropLogsFtsSyncTriggers(db) {
       if (!db) return 0;
       let dropped = 0;
@@ -28699,26 +28734,10 @@ function defineAnalyticsStatsMethods(dependencies = {}, kernel = {}) {
               .all()
           )?.results || [];
       } catch {}
-      const ftsTableLower = kernel.LOGS_FTS_TABLE.toLowerCase();
-      const insertTriggerLower = kernel.LOGS_FTS_INSERT_TRIGGER.toLowerCase();
-      const legacySyncTriggerNames = new Set(
-        [
-          insertTriggerLower,
-          `${kernel.LOGS_TABLE}_ai`,
-          `${kernel.LOGS_TABLE}_au`,
-          `${kernel.LOGS_TABLE}_ad`,
-          `${kernel.LOGS_FTS_TABLE}_ai`,
-          `${kernel.LOGS_FTS_TABLE}_au`,
-          `${kernel.LOGS_FTS_TABLE}_ad`,
-        ].map((name) => String(name || "").toLowerCase()),
-      );
       for (const row of triggerRows) {
         const name = String(row?.name || "").trim();
         if (!name) continue;
-        const lowerName = name.toLowerCase();
-        const normalizedSql = normalizeSqlIdentifierSearchText(row?.sql || "");
-        if (!(legacySyncTriggerNames.has(lowerName) || normalizedSql.includes(ftsTableLower)))
-          continue;
+        if (!kernel.isLogsFtsSyncTrigger(row)) continue;
         await db.prepare(`DROP TRIGGER IF EXISTS ${quoteSqlIdentifier(name)}`).run();
         dropped += 1;
       }
@@ -32424,17 +32443,20 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
       }
       const knownTriggerNames = new Set([String(kernel.LOGS_FTS_INSERT_TRIGGER).toLowerCase()]);
       for (const tableName of Object.keys(contract.columns)) {
-        const unsupportedTriggers = objectRows
-          .filter(
-            (row) =>
-              row?.type === "trigger" &&
-              String(row?.tbl_name || "") === tableName &&
-              !knownTriggerNames.has(String(row?.name || "").toLowerCase()),
-          )
-          .map((row) => String(row?.name || ""))
-          .filter(Boolean);
+        const unsupportedTriggers = [];
+        const legacyFtsTriggers = [];
+        for (const row of objectRows) {
+          if (row?.type !== "trigger" || String(row?.tbl_name || "") !== tableName) continue;
+          const name = String(row?.name || "");
+          if (!name || knownTriggerNames.has(name.toLowerCase())) continue;
+          if (tableName === kernel.LOGS_TABLE && kernel.isLogsFtsSyncTrigger(row))
+            legacyFtsTriggers.push(name);
+          else unsupportedTriggers.push(name);
+        }
         if (unsupportedTriggers.length)
           issues.push(`unsupported_triggers:${tableName}:${unsupportedTriggers.join(",")}`);
+        if (legacyFtsTriggers.length)
+          issues.push(`legacy_fts_trigger:${tableName}:${legacyFtsTriggers.join(",")}`);
       }
       const ftsTable = objectRows.find(
         (row) => row?.type === "table" && String(row?.name || "") === kernel.LOGS_FTS_TABLE,
@@ -32500,13 +32522,10 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
     async getD1SchemaReadiness(db, options = {}) {
       if (options.allowAttestedFastPath === true && options.env) {
         const attested = await kernel.verifyD1SchemaAttestation(db, options.env);
-        if (attested.blocked)
-          return {
-            schemaReady: false,
-            fastPath: false,
-            issues: ["schema_version_ahead"],
-            attested,
-          };
+        if (attested.blocked) {
+          const status = await kernel.getD1SchemaStatus(db);
+          return { ...status, fastPath: false, attested };
+        }
         if (attested.valid)
           return {
             schemaReady: true,
@@ -32645,10 +32664,11 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
           estimatedRows: estimatedRows === null ? null : Math.max(0, Number(estimatedRows) || 0),
           ...extra,
         });
-      if (Math.max(0, Number(storedMeta?.contract_version) || 0) > D1_SCHEMA_CONTRACT_VERSION)
-        blockingIssues.push(
-          `schema_version_ahead:${Math.max(0, Number(storedMeta.contract_version) || 0)}`,
-        );
+      const storedContractVersion = Math.max(0, Number(storedMeta?.contract_version) || 0);
+      const versionAheadIssue =
+        storedContractVersion > D1_SCHEMA_CONTRACT_VERSION
+          ? `schema_version_ahead:${storedContractVersion}`
+          : "";
       for (const [tableName, exists] of Object.entries(status.tables || {})) {
         if (!exists) {
           const issue = `missing_table:${tableName}`;
@@ -32705,6 +32725,17 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
             continue;
           blockingIssues.push(issue);
         }
+      for (const issue of status.issues || []) {
+        const match = /^legacy_fts_trigger:([^:]+):(.+)$/.exec(String(issue));
+        if (!match) continue;
+        const tableName = match[1];
+        for (const rawName of match[2].split(",")) {
+          const triggerName = rawName.trim();
+          if (!triggerName) continue;
+          repairableIssues.push(`legacy_fts_trigger:${tableName}:${triggerName}`);
+          pushStep("drop_trigger", triggerName);
+        }
+      }
       const uniqueKey = `${kernel.DNS_IP_POOL_ITEMS_TABLE}.ip`;
       if (
         status.tables?.[kernel.DNS_IP_POOL_ITEMS_TABLE] &&
@@ -32744,6 +32775,17 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
       const unique = (values) => [
         ...new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
       ];
+      const normalizedRepairable = unique(repairableIssues);
+      const normalizedHighRisk = unique(highRiskIssues);
+      const normalizedBlocking = unique(blockingIssues);
+      if (versionAheadIssue) {
+        if (normalizedBlocking.length || normalizedHighRisk.length) {
+          normalizedBlocking.push(versionAheadIssue);
+        } else {
+          normalizedRepairable.push(versionAheadIssue);
+          pushStep("reattest_contract_version", kernel.D1_SCHEMA_META_TABLE);
+        }
+      }
       const normalizedSteps = [
         ...new Map(steps.map((step) => [`${step.kind}:${step.target}`, step])).values(),
       ].sort((left, right) =>
@@ -32751,9 +32793,6 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
           `${right.risk}:${right.kind}:${right.target}`,
         ),
       );
-      const normalizedRepairable = unique(repairableIssues);
-      const normalizedHighRisk = unique(highRiskIssues);
-      const normalizedBlocking = unique(blockingIssues);
       const safeSteps = normalizedSteps.filter((step) => step.risk !== "high");
       const highRiskSteps = normalizedSteps.filter((step) => step.risk === "high");
       const risk = normalizedBlocking.length
@@ -33303,6 +33342,13 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
             .run();
           executedSteps.push({ kind: "create_table", target: tableName });
         }
+        const droppedTriggers = executableSteps
+          .filter((item) => item.kind === "drop_trigger")
+          .map((item) => item.target);
+        for (const triggerName of droppedTriggers) {
+          await db.prepare(`DROP TRIGGER IF EXISTS ${quoteSqlIdentifier(triggerName)}`).run();
+          executedSteps.push({ kind: "drop_trigger", target: triggerName });
+        }
         const rebuildSteps = executableSteps.filter((step) => step.kind === "rebuild_table");
         const rebuildTargets = rebuildSteps.map((step) => step.target);
         const destructiveLogStep = executableSteps.find(
@@ -33434,6 +33480,7 @@ function defineSchemaInspectionMethods(dependencies = {}, kernel = {}) {
           createdIndexes: [...indexChanges.createdIndexes, ...destructivelyCreatedIndexes],
           repairedIndexes: indexChanges.repairedIndexes,
           uniqueIndexesCreated,
+          droppedTriggers,
           rebuiltTables: rebuiltTables.map(
             ({
               table,

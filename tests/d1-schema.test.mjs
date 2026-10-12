@@ -163,6 +163,7 @@ test("empty D1 initializes the current schema directly", async () => {
         "contractVersion",
         "createdIndexes",
         "createdTables",
+        "droppedTriggers",
         "ftsRebuilt",
         "ftsRecreated",
         "pendingHighRisk",
@@ -674,18 +675,83 @@ test("schema metadata attestation trusts only unchanged verified schemas", async
   });
 });
 
-test("a database schema version newer than the worker is blocked", async () => {
+test("a newer schema version is re-attested when the live schema still matches", async () => {
   await withDatabase(async (database, db) => {
     const env = { JWT_SECRET: "schema-version-secret" };
     await kernel.initializeD1Database(db, { includeFts: true, env });
     database.exec("UPDATE d1_schema_meta SET contract_version = 999 WHERE scope = 'main'");
 
     const plan = await kernel.buildD1SchemaRepairPlan(db);
+    assert.equal(plan.phase, "safe");
+    assert.ok(plan.repairableIssues.includes("schema_version_ahead:999"));
+    assert.equal(plan.blockingIssues.includes("schema_version_ahead:999"), false);
+    assert.ok(
+      plan.steps.some((step) => step.kind === "reattest_contract_version" && step.risk !== "high"),
+    );
+
+    const initialized = await kernel.initializeD1Database(db, { includeFts: true, env });
+    assert.equal(initialized.schemaReady, true);
+    assert.equal(
+      database.prepare("SELECT contract_version FROM d1_schema_meta WHERE scope = 'main'").get()
+        .contract_version,
+      2,
+    );
+  });
+});
+
+test("a newer schema version stays blocked when the live schema is incompatible", async () => {
+  await withDatabase(async (database, db) => {
+    const env = { JWT_SECRET: "schema-version-blocked-secret" };
+    await kernel.initializeD1Database(db, { includeFts: true, env });
+    database.exec("CREATE UNIQUE INDEX legacy_unique_sys_status_payload ON sys_status(payload)");
+    database.exec("UPDATE d1_schema_meta SET contract_version = 999 WHERE scope = 'main'");
+
+    const plan = await kernel.buildD1SchemaRepairPlan(db);
     assert.equal(plan.phase, "blocked");
     assert.ok(plan.blockingIssues.includes("schema_version_ahead:999"));
-    await assert.rejects(
-      kernel.initializeD1Database(db, { includeFts: true, env }),
-      (error) => error?.code === "D1_SCHEMA_REPAIR_BLOCKED",
+    assert.ok(
+      plan.blockingIssues.includes(
+        "unsupported_unique_indexes:sys_status:legacy_unique_sys_status_payload",
+      ),
+    );
+  });
+});
+
+test("legacy proxy_logs FTS sync triggers are removed by safe repair", async () => {
+  await withDatabase(async (database, db) => {
+    const env = { JWT_SECRET: "legacy-fts-trigger-secret" };
+    await kernel.initializeD1Database(db, { includeFts: true, env });
+    database.exec(
+      "CREATE TRIGGER proxy_logs_fts_ad AFTER DELETE ON proxy_logs BEGIN INSERT INTO proxy_logs_fts(proxy_logs_fts, rowid, node_name, request_path, user_agent, error_detail, detail_json) VALUES('delete', old.id, old.node_name, old.request_path, old.user_agent, old.error_detail, old.detail_json); END",
+    );
+
+    const status = await kernel.getD1SchemaStatus(db);
+    assert.equal(status.schemaReady, false);
+    assert.ok(status.issues.includes("legacy_fts_trigger:proxy_logs:proxy_logs_fts_ad"));
+    assert.equal(
+      status.issues.some((issue) => String(issue).startsWith("unsupported_triggers:proxy_logs:")),
+      false,
+    );
+
+    const plan = await kernel.buildD1SchemaRepairPlan(db);
+    assert.equal(plan.phase, "safe");
+    assert.deepEqual(plan.blockingIssues, []);
+    assert.ok(plan.repairableIssues.includes("legacy_fts_trigger:proxy_logs:proxy_logs_fts_ad"));
+    assert.ok(
+      plan.steps.some(
+        (step) => step.kind === "drop_trigger" && step.target === "proxy_logs_fts_ad",
+      ),
+    );
+
+    const initialized = await kernel.initializeD1Database(db, { includeFts: true, env });
+    assert.equal(initialized.schemaReady, true);
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'trigger' AND name = 'proxy_logs_fts_ad'",
+        )
+        .get().total,
+      0,
     );
   });
 });
@@ -1554,6 +1620,55 @@ test("scheduled D1 tidy operates on the current schema", async () => {
 
     assert.match(String(result?.summary?.status || ""), /^(?:success|skipped)$/);
     assert.equal((await kernel.getD1SchemaStatus(db)).schemaReady, true);
+  });
+});
+
+test("scheduled D1 tidy self-heals safe legacy FTS triggers before cleanup", async () => {
+  await withDatabase(async (database, db) => {
+    const env = { JWT_SECRET: "scheduled-auto-repair-secret" };
+    await kernel.initializeD1Database(db, { includeFts: true, env });
+    database.exec(
+      "CREATE TRIGGER proxy_logs_fts_ad AFTER DELETE ON proxy_logs BEGIN INSERT INTO proxy_logs_fts(proxy_logs_fts, rowid, node_name, request_path, user_agent, error_detail, detail_json) VALUES('delete', old.id, old.node_name, old.request_path, old.user_agent, old.error_detail, old.detail_json); END",
+    );
+    assert.equal((await kernel.getD1SchemaStatus(db)).schemaReady, false);
+
+    const result = await kernel.tidyD1Data(env, {
+      db,
+      mode: "scheduled",
+      maintenanceMode: "smart",
+      config: { logRetentionDays: 7 },
+      nowMs: Date.now(),
+    });
+
+    assert.match(String(result?.summary?.status || ""), /^(?:success|skipped)$/);
+    assert.equal((await kernel.getD1SchemaStatus(db)).schemaReady, true);
+    assert.equal(
+      database
+        .prepare(
+          "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'trigger' AND name = 'proxy_logs_fts_ad'",
+        )
+        .get().total,
+      0,
+    );
+  });
+});
+
+test("scheduled D1 tidy does not auto-repair destructive schema issues", async () => {
+  await withDatabase(async (database, db) => {
+    const env = { JWT_SECRET: "scheduled-destructive-block-secret" };
+    await kernel.initializeD1Database(db, { includeFts: true, env });
+    database.exec("CREATE UNIQUE INDEX legacy_unique_sys_status_payload ON sys_status(payload)");
+
+    await assert.rejects(
+      kernel.tidyD1Data(env, {
+        db,
+        mode: "scheduled",
+        maintenanceMode: "smart",
+        config: { logRetentionDays: 7 },
+        nowMs: Date.now(),
+      }),
+      (error) => error?.code === "D1_SCHEMA_NOT_READY",
+    );
   });
 });
 
